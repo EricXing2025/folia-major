@@ -4,23 +4,36 @@
 
 设计简报全文在 Muse 侧档案 `qqmusic-archive/Folia-AI场景电台-设计简报.md`。
 
-## 现状（v0.1 骨架，2026-11-04 夜）
+## 现状（v1.0.0，2026-11-04）
 
-- `mod.json`：模组声明，权限只申 `playback.queue`（换队列送播用）。
-- `client.mjs`：注册 5 个场景命令（工作·上午/下午/晚上、驾车、读书），点了只提示待接入；主流程五步写在文件头注释里。
-- `config/profile.json`：口味画像定版摘要（核心歌手、底层轴、风格与特质）。
-- `config/scenes.json`：五场景参数（能量曲线、节奏、人声比例、兜底歌单、批量）。
-- `config/exclusions.json`：科玲收藏簇排除名单（已确认 33 + 疑似 68，共 101 首 / 82 位歌手），由归属划分档案生成，永不进推荐。
+- `mod.json`：权限 `playback.queue`（整队送播）、`playback.control`（开播、续单点播）、`net.fetch`（调 LLM）、`filesystem.data`（反馈与批次快照）。
+- `client.mjs`：接线层。注册 5 个场景命令（工作·上午/下午/晚上、驾车、读书）+「AI 电台：停止续播」；设置区三项（网关地址默认 `https://trendxai.io/v1`、模型默认 `gemini-3.8-flash-high`、API Key 为 secret 型走 `folium.secrets`）；挂 `queueChanged`/`songChanged` 监听与每秒位置采样。
+- `radio.mjs`：核心逻辑，副作用全经注入端口，可离线单测。
+- `configData.mjs`：`config/*.json` 的内嵌副本（`folia-mod://` 只 serve .js/.mjs，读不了 JSON）；**改配置先改 JSON 再同步它**。
+- `tests/run.mjs`：纯逻辑单测，fake fetch/omni/playback/storage 注入，不连真网关。
 
-## 待接入（v1 主流程）
+## 主流程
 
-1. 提示词组装（画像+场景+已播避重+跳歌负反馈）→ `folium.net` 调 LLM（trendxai 网关）
-2. `folium.omni` 逐首搜索核验（确切版本、可播、排除簇、去重）
-3. `folium.playback.replaceQueue` 送播；剩 ≤3 首自动续单
-4. 跳歌学习：<30 秒跳过记负反馈、听完记正反馈（folium.storage）
-5. 兜底：失败时播 fallbackPlaylist
+1. 场景命令 → 组装提示词（画像 + 场景参数 + 已播避重 + 跳歌负反馈 + 排除歌手）。
+2. `folium.net.fetch` 调 `${base}/chat/completions`（Bearer + 浏览器 UA——网关在 Cloudflare 后，无 UA 被 403/1010；timeout 45s）。
+3. `folium.omni` 逐首核验：确切版本（标题归一全等 > 剥括号同名，歌手须有交集）、非下架、整簇排除、去重与已播避重。
+4. `replaceQueue` 整队送播（expectedVersion 乐观锁，stale-version/rate-limited 重读重试 ≤2）；开播 `playQueueItem(0)`。
+5. 队列剩 ≤3 首自动续单（新歌接尾）；队列里电台的歌全被换掉自动停用。
+6. 反馈：每秒采 `getState().position`，`songChanged` 时 <30s 记 `neg`、≥85% 或距尾 ≤15s 记 `pos`、其余 `heard`，入 `folium.storage`（cap 300，只存 `{s,i,t,a}`，**不存 ref**）。
+
+## 兜底链（生成失败 / 无 key / 核验为空 / 送播被拒）
+
+1. 该场景上次核验批次快照 → `resolveSongs` 复活 → 送播；
+2. 核心歌手降级生成（`searchSongs` 取前排，同套过滤）→ 送播；
+3. toast 指向 `fallbackPlaylist` 同名歌单请手动播。
+
+> **API 限制说明**：Folium 没有歌单读取能力（`folium.omni` 不读用户库，`platform.raw` 只有 netease），「播现有同名歌单」无法按字面实现，上面是等价兜底。若后续 Folium 开放歌单读取再换真实现。
 
 ## 本地验证
 
-仓库根目录：`npm run folium:check ai-scene-radio`（需先 `npm install`），
-再在 Folia「设置 → 模组」开模组系统开关、重载、启用本模组（未签名模组会显示「未验证」，自用正常）。
+```sh
+npm run folium:check ai-scene-radio     # 静态检查（需先 npm install）
+node mods/ai-scene-radio/tests/run.mjs  # 纯逻辑单测
+```
+
+真机：Folia「设置 → 模组」开模组系统、启用本模组（未签名显示「未验证」，自用正常），在模组设置里填 API Key，命令面板跑「AI 电台：…」。真机冒烟本次未验。
