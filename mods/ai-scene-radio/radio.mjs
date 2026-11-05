@@ -19,6 +19,9 @@ export const HISTORY_LIMIT = 300;
 export const AVOID_HISTORY = 60;
 export const CONTINUE_REMAINING = 3;
 export const MIN_QUEUE_SONGS = 3;
+// restore 接管下限：命中数、命中占比（≥2/3）双闸；存储的每场批次镜像上限。
+export const RESTORE_MIN_MATCHES = 6;
+export const BATCH_STORE_LIMIT = 60;
 export const SEARCH_LIMIT = 8;
 export const VERIFY_FAIL_RATIO = 0.6;
 export const GENERATE_COOLDOWN_MS = 8000;
@@ -66,6 +69,10 @@ const pairKey = (title, artist) => `${normTitle(title)}|${normalizeArtist(artist
 const pairIdentity = (song) => `pair:${pairKey(song?.title, song?.artist)}`;
 export const songIdentity = (song) =>
     song && song.source && song.id != null ? `id:${song.source}:${song.id}` : pairIdentity(song);
+
+// 两首 FoliumSong 是否同一首：id 键或 pair 键任一相等（署名/来源变体多一层兜底）。
+const sameSong = (a, b) =>
+    !!a && !!b && (songIdentity(a) === songIdentity(b) || pairIdentity(a) === pairIdentity(b));
 
 // ---------------------------------------------------------------- 候选解析
 
@@ -254,6 +261,9 @@ export const createRadio = (deps) => {
             return {
                 history: saved.history,
                 batches: saved.batches,
+                batchCovers: saved.batchCovers && typeof saved.batchCovers === 'object' && !Array.isArray(saved.batchCovers)
+                    ? saved.batchCovers
+                    : {},
                 revivals: saved.revivals && typeof saved.revivals === 'object' && !Array.isArray(saved.revivals)
                     ? saved.revivals
                     : {},
@@ -313,7 +323,21 @@ export const createRadio = (deps) => {
     };
 
     // 存的是 {s,i,t,a} 四个字段：FoliumSong.ref 是会话句柄，禁止持久化。
-    const portable = (song) => ({ s: song.source ?? null, i: song.id ?? null, t: song.title, a: song.artist });
+    // withCover 时附首曲封面 `c`（describeSong 同步取，没有就不写字段）——批次条目带封面
+    // 供场景卡二档封面用；旧存档没有 c，读取侧跳过即可。听感 history 不需要封面。
+    const portable = (song, withCover = false) => {
+        const entry = { s: song.source ?? null, i: song.id ?? null, t: song.title, a: song.artist };
+        if (withCover) {
+            let cover = null;
+            try {
+                cover = omni.describeSong?.(song)?.coverUrl ?? null;
+            } catch {
+                cover = null;
+            }
+            if (cover) entry.c = cover;
+        }
+        return entry;
+    };
     const resolvable = (entry) => entry.s && entry.i != null;
 
     const apiKey = async () => {
@@ -515,21 +539,37 @@ export const createRadio = (deps) => {
     const rememberBatch = async (sceneId, songs, reset = false) => {
         markQueued(songs, reset);
         const store = await data();
-        store.batches[sceneId] = songs.map(portable);
+        // 续单存整场累积镜像：restore 的命中分母是整个队列，只存最后一截会在续过一次单后
+        // 永远达不到接管线（F11）。旧批次 + 本次追加按播放顺序接；上限留最近 BATCH_STORE_LIMIT 首。
+        // 不用 readWholeQueue 镜像：队列里可能混着用户歌，镜像会把它们记进批次、稀释 F12 的归属判定。
+        // reset（首批/整队替换）照旧只存当批。
+        const previous = reset ? [] : (Array.isArray(store.batches[sceneId]) ? store.batches[sceneId] : []);
+        const entries = songs.map((song) => portable(song, true));
+        store.batches[sceneId] = clip([...previous, ...entries], BATCH_STORE_LIMIT);
+        // 「最近批次首曲封面」单记一档：镜像批界丢失后 batches[0] 是最旧留存首曲，不是最近批的。
+        if (entries[0]?.c) store.batchCovers = { ...(store.batchCovers || {}), [sceneId]: entries[0].c };
         // 新批次生成成功：该场景的兜底复活额度重新计。
         store.revivals = { ...(store.revivals || {}), [sceneId]: 0 };
         await persist();
+        try {
+            deps.onBatchStored?.(sceneId);
+        } catch {
+            /* 封面刷新之类的旁路钩子挂了不影响主链 */
+        }
     };
 
     // 兜底链：持有的场景歌单 → v1 批次快照 → 核心歌手降级 → 提示手动播。
     // 歌单与快照都是「重播同一批」：自上次成功生成起一场景最多复活一次，用尽直接报错，
     // 不静默重放第二遍（F10）。降级腿出新歌不算复活。
-    const fallback = async (scene, stage, sendWhole = replaceWhole) => {
+    // quiet 时整条链照常跑但不出声（F14：升级路径的唯一出口是 disableRadio / 静默停用，
+    // 否则失败会双 toast，被接管时还会弹与事实相反的「生成失败」）。
+    const fallback = async (scene, stage, sendWhole = replaceWhole, quiet = false) => {
         if (state.disposed) return false;
+        const tell = quiet ? () => {} : say;
         const store = await data();
         const stageLabel = STAGE_LABELS[stage] || stage || '生成';
         if ((store.revivals?.[scene.id] ?? 0) >= MAX_REVIVALS) {
-            say(`「${scene.label}」生成失败（${stageLabel}环节），该场景兜底已重播过一遍，不再重放`, 'error');
+            tell(`「${scene.label}」生成失败（${stageLabel}环节），该场景兜底已重播过一遍，不再重放`, 'error');
             return false;
         }
         const noteRevival = async () => {
@@ -551,7 +591,7 @@ export const createRadio = (deps) => {
                             markQueued(songs, true);
                             if (started) applyAudioProfile(scene.id);
                             await noteRevival();
-                            say(`生成失败，改播「${scene.label}」场景歌单（${songs.length} 首）`);
+                            tell(`生成失败，改播「${scene.label}」场景歌单（${songs.length} 首）`);
                             return true;
                         }
                     }
@@ -560,7 +600,11 @@ export const createRadio = (deps) => {
                 }
             }
         }
-        const saved = Array.isArray(store.batches[scene.id]) ? store.batches[scene.id].filter(resolvable) : [];
+        // 镜像是多批累积（F11，上限 60）：只重播「上一批」——取末尾 batchSize 条再滤可解析项；
+        // 不整镜送 resolveSongs，一是会回放整场而非上次批次，二是超 50 keys 契约直接抛错。
+        const saved = Array.isArray(store.batches[scene.id])
+            ? store.batches[scene.id].slice(-Math.min(scene.batchSize || 15, 50)).filter(resolvable)
+            : [];
         if (saved.length) {
             try {
                 const resolved = await omni.resolveSongs(saved.map(({ s, i }) => ({ source: s, id: String(i) })));
@@ -581,7 +625,7 @@ export const createRadio = (deps) => {
                         const started = await playback.playQueueItem(0).then(value => value !== false, () => false);
                         markQueued(songs, true);
                         await noteRevival();
-                        say(`生成失败，改播「${scene.label}」上次电台批次（${songs.length} 首）`, 'info');
+                        tell(`生成失败，改播「${scene.label}」上次电台批次（${songs.length} 首）`, 'info');
                         log?.info?.(`[ai-scene-radio] fallback: replayed ${songs.length} saved songs for ${scene.id}`);
                         if (started) applyAudioProfile(scene.id);
                         return true;
@@ -631,7 +675,7 @@ export const createRadio = (deps) => {
                     if (state.disposed) return false;
                     const started = await playback.playQueueItem(0).then(value => value !== false, () => false);
                     markQueued(songs, true);
-                    say(`生成失败，改播核心歌手精选（${songs.length} 首）`, 'info');
+                    tell(`生成失败，改播核心歌手精选（${songs.length} 首）`, 'info');
                     log?.info?.(`[ai-scene-radio] fallback: degraded ${songs.length} songs for ${scene.id}`);
                     if (started) applyAudioProfile(scene.id);
                     return true;
@@ -641,17 +685,19 @@ export const createRadio = (deps) => {
             log?.warn?.('[ai-scene-radio] 降级兜底失败', error);
         }
         const manual = scene.fallbackPlaylist ? `请手动播放歌单「${scene.fallbackPlaylist}」` : '请手动选歌播放';
-        say(`「${scene.label}」生成失败（${stageLabel}环节），${manual}`, 'error');
+        tell(`「${scene.label}」生成失败（${stageLabel}环节），${manual}`, 'error');
         return false;
     };
 
     // 生成+核验+送播的主链。continuation=true 时接在队列尾部，不打断当前播放；
     // force 跳过冷却（续单升级成整队用，一轮只允许一次）；guard=true 走带归属复检的
-    // 整队送队（升级链，生成窗口内用户接管就放弃，绝不抢队）；resumePlay 标记触发时
-    // 电台还在播——此时追加落地后若已 stopped 视为自然播完，从第一首新歌接起。
+    // 整队送队（升级链，生成窗口内用户接管就放弃，绝不抢队）；quiet=true 时失败侧不出声
+    // （升级链用：兜底腿照跑，但终局与救回提示都静默，出口交给调用方——F14）；
+    // resumePlay 标记触发时电台还在播——追加落地后若已 stopped 且显示歌仍是追加前队尾，
+    // 视为自然播完从第一首新歌接起（F13：用户在窗口内按停/换了歌不算，不替他拉回）。
     // 每次尝试按阶段打标写 diag：真生成成功清零，任何失败 +1（含兜底救回）。
     // 返回 'ok'（已送播，含兜底成功）/ 'busy'（生成中或冷却内，什么都没跑）/ 'fail'（兜底也救不回来）。
-    const runScene = async (sceneId, { continuation = false, force = false, guard = false, resumePlay = false } = {}) => {
+    const runScene = async (sceneId, { continuation = false, force = false, guard = false, resumePlay = false, quiet = false } = {}) => {
         const scene = sceneById(sceneId);
         if (!scene || state.disposed) return 'fail';
         if (state.generating) return 'busy';
@@ -684,17 +730,23 @@ export const createRadio = (deps) => {
                     if (state.disposed) return 'fail';
                     await rememberBatch(scene.id, verified);
                     if (settings()?.savePlaylists !== false) playlistSync?.save(scene, verified);
-                    // 触发时还在播、追加落地却已 stopped：生成窗口内队列自然播完，
-                    // 从第一首新歌接起，电台不静默死掉；触发前就 paused/stopped 的不动——
-                    // 那是用户主动停，不替他拉回。
+                    // 触发时还在播、追加落地却已 stopped：可能是自然播完，也可能是用户
+                    // 在生成窗口内按停。只在能证明是自然耗尽时补播（F13）——宿主队列自然
+                    // 播完停在队尾、显示歌不动（stopAtQueueEnd 只置 IDLE 不清 currentSong），
+                    // replaceQueue 也不碰在播侧：落地时 stopped 且显示歌仍是追加前队尾
+                    // 那一首才算。按停在中间某首、换歌或歌已 null 都不算，不替他拉回。
                     if (resumePlay) {
                         try {
-                            if (playback.getState?.()?.state === 'stopped') {
-                                const firstNew = result.length - verified.length; // 追加必在队尾
-                                if (firstNew >= 0) {
-                                    const resumed = await playback.playQueueItem(firstNew).then((v) => v !== false, () => false);
-                                    if (!resumed) log?.warn?.(`[ai-scene-radio] 续单补播被宿主拒绝 index=${firstNew}`);
-                                }
+                            const now = playback.getState?.();
+                            const tailIndex = result.length - verified.length - 1; // 追加前队尾在新队里的位置
+                            const tailSong = tailIndex >= 0
+                                ? playback.getQueue?.({ offset: tailIndex, limit: 1 })?.items?.[0]?.song
+                                : null;
+                            if (now?.state === 'stopped' && sameSong(now.song, tailSong)) {
+                                const firstNew = tailIndex + 1;
+                                // expectedRef 钉住新批首曲：判别到播放之间队列若被插入过，播错位置不如不播。
+                                const resumed = await playback.playQueueItem(firstNew, verified[0]?.ref).then((v) => v !== false, () => false);
+                                if (!resumed) log?.warn?.(`[ai-scene-radio] 续单补播被宿主拒绝 index=${firstNew}`);
                             }
                         } catch (resumeError) {
                             log?.warn?.('[ai-scene-radio] 续单补开播失败', resumeError);
@@ -726,14 +778,14 @@ export const createRadio = (deps) => {
                 state.contFails += 1;
                 state.lastFail = { scene: scene.id, stage, message: summary };
                 log?.warn?.(`[ai-scene-radio] generate failed for ${scene.id} at ${stage}`, error);
-                if (error?.message === 'no-api-key' && !continuation) {
+                if (error?.message === 'no-api-key' && !continuation && !quiet) {
                     say('未设置 API Key：设置 → 模组 → AI 场景电台 里填写后重试', 'error');
                 }
                 if (continuation) {
                     await recordDiag(scene.id, stage, summary);
                     return 'fail';
                 }
-                const rescued = await fallback(scene, stage, sendWhole).catch((fallbackError) => {
+                const rescued = await fallback(scene, stage, sendWhole, quiet).catch((fallbackError) => {
                     log?.warn?.('[ai-scene-radio] fallback threw', fallbackError);
                     return false;
                 });
@@ -822,10 +874,11 @@ export const createRadio = (deps) => {
                     clearAudioProfile();
                     return;
                 }
-                const escalated = await runScene(sceneId, { force: true, guard: true });
+                const escalated = await runScene(sceneId, { force: true, guard: true, quiet: true });
                 if (escalated === 'fail' || state.contFails >= CONT_FAIL_LIMIT) {
-                    // 升级窗口内被接管：用户已夺回队列，静默停用不弹错（不抢队红线）。
-                    if (state.lastFail?.message === 'refused:queue-taken-over') {
+                    // 升级窗口内被接管（生成或兜底腿期间都算）：用户已夺回队列，
+                    // 静默停用不弹错（不抢队红线，F14）。
+                    if (state.lastFail?.message === 'refused:queue-taken-over' || queueTakenOverByUser()) {
                         state.activeSceneId = null;
                         clearAudioProfile();
                         return;
@@ -836,21 +889,35 @@ export const createRadio = (deps) => {
         }
     };
 
+    // 当前队列的歌整队读出（页不满直接用、看不全按页读全）；读不出一致版本给 null。
+    const queueSongsNow = () => {
+        try {
+            const snap = playback.getQueue();
+            if (!snap || snap.kind !== 'queue') return null;
+            if (Array.isArray(snap.items) && snap.items.length === snap.length) {
+                return snap.items.map((item) => item.song);
+            }
+            return readWholeQueue()?.songs ?? null;
+        } catch {
+            return null;
+        }
+    };
+
+    // 队列已被用户接管：非空、是 queue、且一首电台歌都不剩。
+    const queueTakenOverByUser = () => {
+        const songs = queueSongsNow();
+        return !!songs?.length && !songs.some(queuedMatch);
+    };
+
     // 升级/受检整队送队是否安全：队列已排空 → true（spec：排空被拒升级整队补锅）；
     // 仍是电台的歌且还在播 → true；是用户的队、fm/stage、已 paused/stopped
     // （用户自己停/暂停，不强插）、或读不出来 → false（盲换会抢队）。
     const queueOpenForEscalation = () => {
+        const songs = queueSongsNow();
+        if (!songs) return false;
+        if (!songs.length) return true;
+        if (!songs.some(queuedMatch)) return false;
         try {
-            const snap = playback.getQueue();
-            if (!snap || snap.kind !== 'queue') return false;
-            if (!snap.length) return true;
-            let songs;
-            if (Array.isArray(snap.items) && snap.items.length === snap.length) {
-                songs = snap.items.map((item) => item.song);
-            } else {
-                songs = readWholeQueue()?.songs ?? null;
-            }
-            if (!songs || !songs.some(queuedMatch)) return false;
             return playback.getState?.()?.state === 'playing';
         } catch {
             return false;
@@ -901,8 +968,19 @@ export const createRadio = (deps) => {
             );
             if (!best || matches.length > best.matches.length) best = { sceneId, matches, keys };
         }
-        // 「主体」判定：至少 MIN_QUEUE_SONGS 首命中且占队列过半，否则当用户自己的队列不接管。
-        if (!best || best.matches.length < MIN_QUEUE_SONGS || best.matches.length * 2 <= queueSongs.length) return;
+        // 「主体」判定（F12）：命中 ≥RESTORE_MIN_MATCHES、占队列 ≥2/3，且显示歌（若有）
+        // 属于该批次的身份集——三条齐备才接管。用户自排 3–6 首小队列碰巧重合几首，
+        // 或正在播自己的歌，都不得被接管（接管会改音效、队尾还会往里续歌）。
+        if (!best
+            || best.matches.length < RESTORE_MIN_MATCHES
+            || best.matches.length * 3 < queueSongs.length * 2) return;
+        let shown = null;
+        try {
+            shown = playback.getState?.()?.song ?? null;
+        } catch {
+            shown = null;
+        }
+        if (shown && !best.keys.has(songIdentity(shown)) && !best.keys.has(pairIdentity(shown))) return;
         state.activeSceneId = best.sceneId;
         for (const key of best.keys) state.queuedKeys.add(key);
         for (const song of best.matches) {

@@ -184,3 +184,42 @@ Argon 独立审查修复 F1–F7 + 新功能 F8（电台卡片封面）。已核
 **第 1 轮**：2 中 + 8 低。中项已修：①`submitQueue` 重试环与 fallback 在途缺 disposed 复查——循环头加闸；②续单生成窗口内队列漂移——appendQueue 的 getBatch 加归属检查（排空→queue-empty 升级、无电台歌→queue-taken-over 不追加），升级前 `queueOpenForEscalation` 复查归属，stopped 补播接起自然播完。低项采纳：翻页读队异常 try 包住、restore 异常记 warn、restore 接管即 applyAudioProfile、兜底全空 toast 带环节、exclusions.json note 同步 F9 语义、README 重试次数改 ≤3。刻意保留：升级被兜底救回但连败到顶仍停用（contFails 是需求写的 LLM 上限）；mod.json 版本号不动（留给组织者发版）。
 
 **第 2 轮**（复审修复）：1 高 + 4 中，全部修复。H1 升级路径只在生成前验一次归属，窗口内接管会抢队 → `runScene` 加 `guard` 选项走 `replaceWholeGuarded`，送队每轮复查归属，被接管 fatal + 静默停用。M1 补播 `findIndex` 是页内相对下标、真机居中分页会播错 → 改 `result.length - verified.length`（追加必在队尾）。M2 'replaced' 落地后无 disposed 复查 → 主链两路 + 兜底三腿各补一道。M3 补播/升级不区分自然播完与用户主动停 → 触发时记播放态，仅 playing→stopped 补播；ours 队列升级还要求仍在播，paused/stopped 静默停用。M4 `queuedKeys` 只增不减会把用户队列误判电台 → `markQueued(reset)`，整队替换路径（非续单 + 兜底三腿）重置为当批键。低项未处理：瞬态 getQueue 抛错烧一轮生成、dropIndex 可能剔错旧歌、fake 分页语义与宿主居中不同（已有覆盖，残余）、静默停用不清 contFails 等，交付注明。按流程第二轮修复不再审查。
+
+---
+
+# PLAN — 修复批第三轮 F11–F14 + F8b（fix/v2-argon-batch 追加，2026-11-05）
+
+基线 9743d493。独立 Reviewer 复核 P1×2 阻断上线（成立），P2×2，F8 二档封面为首轮简报截断漏项。只动 `mods/ai-scene-radio/{radio,client}.mjs` 与 tests/run.mjs，宿主源码零改动。
+
+## F11（P1-1）续单后 restore 永远接管失败
+
+- 根因：续单成功时 `rememberBatch` 只存新追加一截，`batches[sceneId]` 被覆盖成最后一批；restore 要求命中严格过半——续单一次后队列 30、命中 15，永远不达标。
+- 修法：续单时 `batches[sceneId]` 存**整场累积镜像**（旧批次 + 本次追加，按播放顺序），`clip` 到 `BATCH_STORE_LIMIT=60`；整队替换（reset）语义不变。选「旧批次+追加」而非 readWholeQueue 镜像：队列里可能混着用户歌，镜像会把它们记进批次身份集、稀释 F12 的归属判定，且避免落地后再读一次队列的竞态。
+
+## F12（P1-2）restore 误接管用户小队列
+
+- 接管三条件齐备才恢复：命中 ≥`RESTORE_MIN_MATCHES`(6)、命中/队列 ≥2/3（`matches*3 >= len*2` 边界含）、且显示歌（若有）属于该批次身份集（id 或 pair 键）。显示歌按 `getState().song`（display song）判，读出异常按无歌放行。
+
+## F13（P2-1）补播分不清自然播完与用户按停
+
+- 宿主语义核实：`getState().song` = 显示歌（`transitionDisplay?.song ?? currentSong`）；队列自然播完走 `stopAtQueueEnd` 只置 `PlayerState.IDLE`、**不清 currentSong**（= 队尾那首）；`replaceFoliumQueue` 注释明确 "Nothing about what plays changes"，不改写在播侧。「落地时 stopped 且显示歌仍是追加前队尾」可证明自然耗尽，前提成立。
+- 修法：resumePlay 落地判别改为——`state==='stopped'` 且 `getQueue({offset: tailIndex, limit:1})` 取到的追加前队尾与 `getState().song` 同歌（`sameSong`：id 或 pair 键相等）。tailIndex = `result.length - verified.length - 1`，firstNew = tailIndex+1。用户停在中间某首、换歌、登出（song=null）均不补播。
+
+## F14（P2-2）升级失败双 toast + 被接管误导 toast
+
+- `runScene` 加 `quiet`：升级调用传 `quiet:true`；`no-api-key` toast 在 quiet 下也不发；`fallback` 第 4 参 quiet——内部所有 `say` 换 `tell`（腿照跑、额度照记，但零出声）。
+- 升级后再判接管：`queueTakenOverByUser()`（整队读、非空、无一首电台歌）补 `lastFail==='refused:queue-taken-over'`——生成败因非接管但兜底腿期间被接管的情况也静默停用。共用整队读取抽为 `queueSongsNow()`。
+
+## F8b 场景卡封面第二档
+
+- `portable(song, withCover)`：withCover 时附 `c`=`omni.describeSong(song)?.coverUrl`（describeSong 同步读 `song.album?.coverUrl`；没有就不写字段）。批次条目（含累积镜像全部条目）带 c；history 条目不带。
+- client `refreshRadioCovers`：一档 `covers()` 缺失的场景，二档先取 `batchCovers[sceneId]`（rememberBatch 记的**最近批**首曲封面；镜像批界丢失后 batches[0] 是最旧留存首曲），旧存档没有该字段退回 `batches[sceneId][0].c`，都没有跳过不报错。不再要求 playlistSync 存在（library 缺失时二档仍生效）。新增 deps `onBatchStored`：rememberBatch 落盘后回调刷新，批次更新封面跟随。`loadState` 归一化时保留 `batchCovers`（否则重载后被下个场景落地盖丢）。
+
+## 独立复审（1 轮，explore 子代理）
+
+1 中 + 10 低。**中 M1（必修已修）**：快照复活腿把累积镜像整镜送 `omni.resolveSongs`，超 50-key 契约必抛 → 该腿废；且回放整场而非上一批。修为 `slice(-min(batchSize,50))` 取镜像末尾一批。**低项采纳修复**：L4 batches[0] 非「最近批首曲」→ 加 `batchCovers` 字段；L5 补播 `playQueueItem` 加 `expectedRef` 钉住新批首曲。**低项记录在案不修**：L1 dropIndex 剔新歌时 tailIndex 偏一（方向保守漏补非错补）；L2 显示歌判定用镜像全集宽于 spec 字面命中集（有意取舍，残余面窄）；L3 升级链仍弹「正在生成」info toast（spec 只约束错误侧）；L6 触发前已自然耗尽的队列接尾后不补播（保守）；L7-L9 pair 键宽松/排空放行/读页漂移的固有边界；L10 其余覆盖缺口已按价值补 3 条。
+
+## 验证
+
+- `node mods/ai-scene-radio/tests/run.mjs` → **70 tests passed**（较上轮 +4：镜像>50 快照腿只取末批、F12 无在播歌放行、F12 比例闸拒绝、batchCovers 续单更新；另有 client 用例扩到 batchCovers 优先语义）。
+- `npm run folium:check ai-scene-radio` exit 0 `no problem found`；`npm run typecheck` exit 0。宿主文件零改动，无定向宿主单测需跑。

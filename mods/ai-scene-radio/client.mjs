@@ -12,7 +12,7 @@
 // 兜底（生成失败/无 key/核验为空）：有 bridge 时从已记录歌单尝试，之后沿用 v1 快照 → 歌手 → 手动提示；
 // 歌单与快照属「重播同一批」，自上次成功生成起最多复活一次，用尽弹错误 toast；失败尝试落盘 diag。
 
-import { createRadio, SECRET_KEY, DEFAULT_GATEWAY, DEFAULT_MODEL } from './radio.mjs';
+import { createRadio, SECRET_KEY, DEFAULT_GATEWAY, DEFAULT_MODEL, STORAGE_KEY } from './radio.mjs';
 import { createScenePlaylistSync } from './sceneBridge.mjs';
 
 /** @typedef {import('../folium').FoliumClientApi} Folium */
@@ -73,6 +73,8 @@ export default function activate(folium) {
         })
         : null;
     const radio = createRadio({
+        // 批次落地后刷新卡片封面：无场景歌单封面时，二档显示该批次首曲封面。
+        onBatchStored: () => refreshRadioCovers(),
         fetch: (url, init) => folium.net.fetch(url, init),
         omni: folium.omni,
         playback: folium.playback,
@@ -106,10 +108,29 @@ export default function activate(folium) {
         }
     };
     const refreshRadioCovers = () => {
-        if (!playlistSync || folium.env?.context !== 'main' || typeof folium.radio !== 'object') return;
-        void playlistSync.covers(radio.scenes())
-            .then((found) => { sceneCovers = found; registerRadioCards(); })
-            .catch(() => {});
+        if (folium.env?.context !== 'main' || typeof folium.radio !== 'object') return;
+        void (async () => {
+            // 封面优先级（F8b）：场景歌单封面 > 最近批次首曲封面 > 无图。
+            // 二档先取 batchCovers（rememberBatch 记的最近批首曲封面）；旧存档没有这个字段，
+            // 退回批次镜像首条的 c（累积镜像下是最旧留存首曲，兜底可用）；都没有就跳过该档。
+            const found = playlistSync ? await playlistSync.covers(radio.scenes()).catch(() => ({})) : {};
+            const saved = await folium.storage.get(STORAGE_KEY).catch(() => null);
+            const batches = saved && typeof saved === 'object' && saved.batches && typeof saved.batches === 'object'
+                ? saved.batches
+                : {};
+            const batchCovers = saved && typeof saved === 'object' && saved.batchCovers && typeof saved.batchCovers === 'object'
+                ? saved.batchCovers
+                : {};
+            for (const scene of radio.scenes()) {
+                if (found[scene.id]) continue;
+                const recent = batchCovers[scene.id];
+                const first = Array.isArray(batches[scene.id]) ? batches[scene.id][0] : null;
+                const cover = (typeof recent === 'string' && recent) || (first && typeof first.c === 'string' && first.c) || null;
+                if (cover) found[scene.id] = cover;
+            }
+            sceneCovers = found;
+            registerRadioCards();
+        })().catch(() => {});
     };
 
     if (folium.env?.context === 'main' && typeof folium.radio === 'object') {
