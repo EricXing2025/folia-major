@@ -107,7 +107,14 @@ exports.default = async (context) => {
   await pruneLibrespotBinaries(context);
   if (context.electronPlatformName === 'darwin') {
     const { verifyMacCompanion } = require('../electron/appleMusic/macos/prepareBundle.cjs');
-    await verifyMacCompanion(context.packager.getResourcesDir(context.appOutDir));
+    try {
+      await verifyMacCompanion(context.packager.getResourcesDir(context.appOutDir));
+    } catch (error) {
+      // Companion of the env-gated beforePack leniency: when the companion build was
+      // skipped (FOLIA_LENIENT_COMPANION=1), its absence must not fail afterPack.
+      if (process.env.FOLIA_LENIENT_COMPANION !== '1') throw error;
+      console.warn('[afterPack] WARNING: Apple Music companion verification skipped (FOLIA_LENIENT_COMPANION=1).', error);
+    }
     const { verifyBundledKoffi } = await import('../packaging/macos/prepare-koffi.mjs');
     await verifyBundledKoffi({
       resourcesDir: context.packager.getResourcesDir(context.appOutDir),
