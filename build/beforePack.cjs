@@ -36,6 +36,13 @@ exports.default = async (context) => {
     await prepareBundledKoffi({ arch, projectRoot: context.packager.projectDir });
     // The wallpaper's Stage Manager click guard (issue #698), a small native helper.
     const { prepareDesktopClickGuard } = await import('../packaging/macos/build-desktop-click-guard.mjs');
-    await prepareDesktopClickGuard({ arch, projectRoot: context.packager.projectDir });
+    try {
+      await prepareDesktopClickGuard({ arch, projectRoot: context.packager.projectDir });
+    } catch (error) {
+      // Same env-gated leniency as the Apple Music companion: the click guard is a
+      // wallpaper-only helper; a broken local Swift toolchain must not block packaging.
+      if (process.env.FOLIA_LENIENT_COMPANION !== '1') throw error;
+      console.warn('[beforePack] WARNING: desktop click guard build failed; continuing without it (FOLIA_LENIENT_COMPANION=1).', error);
+    }
   }
 };
