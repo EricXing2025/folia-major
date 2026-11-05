@@ -59,7 +59,7 @@ export const createFoliumSessionBridge = (
             getPlaylistTracks: (id: string) => libraryCall('library.getPlaylistTracks', library => library.getPlaylistTracks(id)),
         }),
         radio: Object.freeze({
-            registerEntries: (entries: { id: string; title: string; subtitle?: string }[]) => gate('ui.radio', 'radio.registerEntries').radio.registerEntries(entries),
+            registerEntries: (entries: { id: string; title: string; subtitle?: string; imageUrl?: string }[]) => gate('ui.radio', 'radio.registerEntries').radio.registerEntries(entries),
             onStartRequest: (callback: (entryId: string) => void) => gate('ui.radio', 'radio.onStartRequest').radio.onStartRequest(callback),
         }),
     };

@@ -246,6 +246,27 @@ const songDetailOf = (song: UnifiedSong | null | undefined): OmniSongDetail => (
     song ? { status: 'found', song } : { status: 'missing' }
 );
 
+// Every identity a provider's playlist entry can be known by: its own id plus each alias the
+// provider's data names it under (one platform's songs carry both a numeric id and a string mid,
+// either of which names the song). One shared key means the same song; a track with no shared key
+// is not the same one — when nothing matches it is kept, never removed.
+const playlistTrackKeys = (song: UnifiedSong): string[] => {
+    const keys = new Set<string>();
+    const add = (value: unknown) => {
+        const key = typeof value === 'string' || typeof value === 'number' ? String(value).trim() : '';
+        if (key) keys.add(key);
+    };
+    add(song.id);
+    const source = getPlaybackSourceRef(song);
+    if (source.kind === 'online') {
+        add(source.mediaId);
+        add(source.providerData?.songId);
+        add(source.providerData?.songMid);
+        add(source.providerData?.mediaMid);
+    }
+    return [...keys];
+};
+
 // 点赞状态改完要落盘：只更内存的话，重启后靠快照 hydration 的那一帧会恢复旧心形，
 // 后台刷新再失败就一直是旧的。
 const persistProviderLikedSongIds = async (providerId: OmniProviderId): Promise<void> => {
@@ -726,7 +747,9 @@ export const omni = {
         if (!providerSupports(provider, 'mutations') || !providerSupports(provider, 'playlistTrackMutations')
             || !provider.mutations?.createPlaylist
             || !provider.mutations?.updatePlaylistTracks) return unsupported(provider.id, 'playlist-creation');
-        return provider.mutations.createPlaylist(title);
+        const playlist = await provider.mutations.createPlaylist(title);
+        void this.refreshProviderPlaylists(provider.id).catch(() => undefined);
+        return playlist;
     },
 
     async replaceCollectionTracks(
@@ -756,10 +779,18 @@ export const omni = {
             if (!page.hasMore || page.nextOffset <= offset) break;
             offset = page.nextOffset;
         }
+        // Delta, not wipe: additions go in before anything leaves, so a failed add costs the new
+        // tracks at most — nothing already in the playlist is lost. A track the request still
+        // names keeps its place; only entries it no longer names go.
+        const keptKeys = new Set(existing.flatMap(playlistTrackKeys));
+        const askedKeys = new Set(tracks.flatMap(playlistTrackKeys));
+        const additions = tracks.filter(song => !playlistTrackKeys(song).some(key => keptKeys.has(key)));
+        const removals = existing.filter(song => !playlistTrackKeys(song).some(key => askedKeys.has(key)));
         stillCurrent();
-        if (existing.length) await this.updateCollectionTracks(collection, 'del', existing);
+        if (additions.length) await this.updateCollectionTracks(collection, 'add', additions);
         stillCurrent();
-        if (tracks.length) await this.updateCollectionTracks(collection, 'add', tracks);
+        if (removals.length) await this.updateCollectionTracks(collection, 'del', removals);
+        void this.refreshProviderPlaylists(provider.id).catch(() => undefined);
     },
 
     // Reads who is signed in to a provider, their playlists and their liked songs from the

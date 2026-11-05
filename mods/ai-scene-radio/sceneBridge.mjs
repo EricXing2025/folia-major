@@ -12,7 +12,7 @@ export const SCENE_PROFILES = Object.freeze({
 
 export const playlistTitle = (scene) => `AI 电台 · ${scene.label}`;
 
-export const createScenePlaylistSync = ({ library, storage, log, activeSource, accountKey }) => {
+export const createScenePlaylistSync = ({ library, storage, log, activeSource, accountKey, onSaved }) => {
     let pending = Promise.resolve();
     let disposed = false;
     const read = async () => {
@@ -54,9 +54,17 @@ export const createScenePlaylistSync = ({ library, storage, log, activeSource, a
                 try {
                     playlist = await library.createPlaylist(playlistTitle(scene));
                 } catch (error) {
-                    if (error?.code === 'NOT_SUPPORTED') {
-                        // The core refused before it could send a create request.
-                        await storage.set(PLAYLIST_IDS_KEY, saved);
+                    if (error?.code === 'NOT_SUPPORTED' && !disposed) {
+                        // The core refused before it could send a create request. Take back only
+                        // this run's reservation, on the ledger as it stands now — a newer mod
+                        // instance may have written it while the request was in flight.
+                        const latest = await read();
+                        const current = latest[key] ?? {};
+                        if (current[scene.id] === CREATION_PENDING) {
+                            const nextIds = { ...current };
+                            delete nextIds[scene.id];
+                            await storage.set(PLAYLIST_IDS_KEY, { ...latest, [key]: nextIds });
+                        }
                     }
                     throw error;
                 }
@@ -70,6 +78,7 @@ export const createScenePlaylistSync = ({ library, storage, log, activeSource, a
             }
             if (disposed || activeSource?.() !== 'qq' || key !== accountKey?.()) return;
             await library.replacePlaylistSongs(playlist.id, songs.map(song => ({ source: song.source, id: String(song.id) })));
+            if (!disposed) onSaved?.(scene);
         }).catch(error => { log?.warn?.('[ai-scene-radio] playlist write skipped', error); });
     };
     const tracks = async (scene) => {
@@ -81,5 +90,23 @@ export const createScenePlaylistSync = ({ library, storage, log, activeSource, a
             return [];
         }
     };
-    return { save, tracks, settled: () => pending, dispose: () => { disposed = true; } };
+    // Covers of the tracked playlists, { sceneId: url }: one listPlaylists read, matched by the
+    // same ledger id + title rule as `owned`. Scenes without a tracked, covered playlist are absent.
+    const covers = async (scenes) => {
+        const key = accountKey?.();
+        if (disposed || !library || activeSource?.() !== 'qq' || !key) return {};
+        const ids = (await read())[key] ?? {};
+        const tracked = (scenes ?? []).filter(scene => (
+            typeof ids[scene.id] === 'string' && ids[scene.id] && ids[scene.id] !== CREATION_PENDING
+        ));
+        if (!tracked.length) return {};
+        const items = await library.listPlaylists();
+        const result = {};
+        for (const scene of tracked) {
+            const found = items.find(item => item.id === ids[scene.id] && item.title === playlistTitle(scene));
+            if (found?.coverUrl) result[scene.id] = found.coverUrl;
+        }
+        return result;
+    };
+    return { save, tracks, covers, settled: () => pending, dispose: () => { disposed = true; } };
 };

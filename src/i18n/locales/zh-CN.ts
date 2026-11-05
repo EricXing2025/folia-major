@@ -1073,6 +1073,7 @@ export default {
     "equalizerModCurveSave": "存进「{{slot}}」（替换原有内容）",
     "equalizerModCurveDormant": "模组「{{name}}」的曲线暂未生效：这个模组已停用或卸载，重新启用后会恢复。在这里改音效会丢弃它。",
     "equalizerModCurveDiscard": "丢弃这条曲线",
+    "equalizerModProfile": "音效暂时由模组「{{name}}」接管",
     "equalizerPreset": {
       "flat": "水平",
       "lofi": "Lo-Fi",

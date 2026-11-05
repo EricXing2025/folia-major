@@ -522,24 +522,42 @@ export const Grid3D: React.FC<Grid3DProps> = (props) => {
                         />
                     )
                 ) : showOnlineList ? (
-                    <DesktopGrid3DSurface
-                        focusMemoryScope={JSON.stringify(['online', activeProviderId, activeUser?.id ?? null, homeViewTab])}
-                        title={sceneCards.length ? t('aiSceneRadio.heading') : onlineList.title}
-                        mapButtonLabel={t('home.allAlbums')}
-                        items={onlineItems}
-                        focusedIndex={focusedIndex}
-                        onFocusedIndexChange={setFocusedIndex}
-                        onSelect={item => handleSelectCollectionCard(item as LibraryHomeCard)}
-                        isLoading={onlineList.isLoading}
-                        emptyMessage={onlineList.emptyMessage}
-                        theme={theme}
-                        isDaylight={isDaylight}
-                        isInteractive={isInteractive}
-                        hasFloatingPlayer={Boolean(currentTrack)}
-                        playlistVisibilityScope={hiddenScope}
-                        directoryKey={directoryKey}
-                        declaredHomeActions={declaredActions}
-                    />
+                    <>
+                        <DesktopGrid3DSurface
+                            focusMemoryScope={JSON.stringify(['online', activeProviderId, activeUser?.id ?? null, homeViewTab])}
+                            title={sceneCards.length ? t('aiSceneRadio.heading') : onlineList.title}
+                            mapButtonLabel={t('home.allAlbums')}
+                            items={onlineItems}
+                            focusedIndex={focusedIndex}
+                            onFocusedIndexChange={setFocusedIndex}
+                            onSelect={item => handleSelectCollectionCard(item as LibraryHomeCard)}
+                            isLoading={onlineList.isLoading}
+                            emptyMessage={onlineList.emptyMessage}
+                            theme={theme}
+                            isDaylight={isDaylight}
+                            isInteractive={isInteractive}
+                            hasFloatingPlayer={Boolean(currentTrack)}
+                            playlistVisibilityScope={hiddenScope}
+                            directoryKey={directoryKey}
+                            declaredHomeActions={declaredActions}
+                        />
+                        {/* Scene cards do not take the login entry away: while there is no account
+                            the account prompt keeps a compact place under the card rail. */}
+                        {isOnlineTab && sceneCards.length > 0 && activeAccountView === 'accountless' && (
+                            <div className="w-full shrink-0">
+                                <OnlineProviderAccountlessPanel
+                                    providerLabel={activeProviderLabel}
+                                    isDaylight={isDaylight}
+                                    onSearch={() => searchInputRef.current?.focus()}
+                                />
+                            </div>
+                        )}
+                        {isOnlineTab && sceneCards.length > 0 && activeAccountView === 'guest' && (
+                            <div className="w-full shrink-0">
+                                <HomeLoginPanel account={account} />
+                            </div>
+                        )}
+                    </>
                 ) : homeViewTab === 'local' ? (
                     <div className="w-full h-full flex-1">
                         <LocalGrid3DView

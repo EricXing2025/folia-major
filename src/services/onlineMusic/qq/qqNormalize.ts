@@ -318,7 +318,8 @@ export const normalizeQqCollection = (raw: unknown, type = 'playlist'): Provider
     const dirType = pick(item, 'dirType') ?? pick(existing, 'dirType');
     const name = text(pick(item, 'dirName', 'dirname', 'dissname', 'title', 'name'));
     // GetPlaylistByUin exposes both cover sizes and songNum; cached normalized keys remain fallbacks.
-    const coverUrl = normalizeQqCoverUrl(pick(item, 'bigpicUrl', 'picUrl', 'picurl', 'coverUrl'));
+    // 上游歌单条目的 `logo` 也是封面图（音乐馆 / 自建歌单接口的写法）。
+    const coverUrl = normalizeQqCoverUrl(pick(item, 'bigpicUrl', 'picUrl', 'picurl', 'coverUrl', 'logo'));
     const trackCount = Number(pick(item, 'songNum', 'songnum', 'trackCount'));
     // `/recommend/playlists` 的条目带 `desc`、`play_cnt` 与 `creator.nick`；上游没给的数字不出现，不补 0。
     const description = text(pick(item, 'desc', 'description'));

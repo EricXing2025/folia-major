@@ -346,3 +346,31 @@ describe('the curve kept from the last run', () => {
         expect(info).toHaveBeenCalledWith('[AudioEqualizer] kept a mod curve saved by a later version (v=2); not used here');
     });
 });
+
+describe('a mod\'s session profile', () => {
+    const PROFILE = {
+        modId: 'radio-mod',
+        bandsDb: [0, 1, 0, 1, 3, 3, 2, 1, 1, 0],
+        lowCutHz: 60, highCutHz: 20000, compressorPct: 40, widthPct: 90, reverbPct: 5,
+    };
+
+    it('names the mod as the origin when it lands, and the host when it is let go', () => {
+        store().setAudioProfileOverride(PROFILE);
+        expect(store().audioProfileOverride).toEqual(PROFILE);
+        expect(store().audioEqualizerChangeOrigin).toEqual({ kind: 'mod', modId: 'radio-mod' });
+
+        store().clearAudioProfileOverride('radio-mod');
+        expect(store().audioProfileOverride).toBeNull();
+        expect(store().audioEqualizerChangeOrigin).toEqual({ kind: 'host' });
+    });
+
+    it('changes nothing when the mod named is not the one holding the sound', () => {
+        store().setAudioProfileOverride(PROFILE);
+        const { seen, stop } = watchSets();
+        store().clearAudioProfileOverride('other-mod');
+        stop();
+        expect(seen).toHaveLength(0);
+        expect(store().audioProfileOverride).toEqual(PROFILE);
+        expect(store().audioEqualizerChangeOrigin).toEqual({ kind: 'mod', modId: 'radio-mod' });
+    });
+});

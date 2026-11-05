@@ -90,17 +90,18 @@ describe('permission-gated session bridges', () => {
         const song = { id: 'song-1', name: 'Song', artists: [{ id: 1, name: 'Artist' }], sourceRef: {
             kind: 'online', providerId: 'qq', mediaId: 'song-1',
         } };
-        vi.spyOn(omni, 'getSongDetail').mockResolvedValue(song as Awaited<ReturnType<typeof omni.getSongDetail>>);
+        vi.spyOn(omni, 'getSongDetails').mockResolvedValue([{ status: 'found', song } as never]);
         const replace = vi.spyOn(omni, 'replaceCollectionTracks').mockResolvedValue();
         const bridge = createFoliumSessionBridge(mod(['library.playlists']), 'main', () => false, () => {});
         expect(await bridge.library.listPlaylists()).toEqual([{ id: 'playlist-1', title: 'AI scene', trackCount: undefined }]);
         const readTracks = vi.spyOn(omni, 'getCollectionTracks')
-            .mockResolvedValue({ items: [song as NonNullable<Awaited<ReturnType<typeof omni.getSongDetail>>>], hasMore: false, nextOffset: 1 });
+            .mockResolvedValue({ items: [song as never], hasMore: false, nextOffset: 1 });
         expect(await bridge.library.getPlaylistTracks('playlist-1')).toEqual([
             { source: 'qq', id: 'song-1', title: 'Song', artist: 'Artist' },
         ]);
         expect(readTracks).toHaveBeenCalledWith(owned, { offset: 0, limit: 100 });
         await bridge.library.replacePlaylistSongs('playlist-1', [{ source: 'qq', id: 'song-1' }]);
+        expect(omni.getSongDetails).toHaveBeenCalledWith('qq', ['song-1']);
         expect(replace).toHaveBeenCalledWith(owned, [song], 'account-1', expect.any(Function));
         await expect(bridge.library.replacePlaylistSongs('untracked', [{ source: 'qq', id: 'song-1' }]))
             .rejects.toMatchObject({ code: 'NOT_SUPPORTED' });
@@ -109,5 +110,49 @@ describe('permission-gated session bridges', () => {
         await expect(bridge.library.replacePlaylistSongs('playlist-1', [{ source: 'qq', id: 'song-1' }]))
             .rejects.toMatchObject({ code: 'NOT_SUPPORTED' });
         expect(replace).toHaveBeenCalledTimes(1);
+    });
+
+    it('resolves replacement songs in one grouped lookup and refuses over 500 or an unfound song', async () => {
+        const source = { providerId: 'qq', status: 'authenticated', user: { id: 'account-1', nickname: 'User' } };
+        const owned = { providerId: 'qq', id: 'playlist-1', name: 'AI scene', type: 'playlist', isOwned: true };
+        vi.spyOn(omni, 'getActiveProviderSummary').mockReturnValue(source as ReturnType<typeof omni.getActiveProviderSummary>);
+        vi.spyOn(omni, 'getUserPlaylists').mockResolvedValue({ items: [owned], hasMore: false, nextOffset: 1 });
+        vi.spyOn(omni, 'canEditCollectionTracks').mockReturnValue(true);
+        const song = { id: 'song-1', sourceRef: { kind: 'online', providerId: 'qq', mediaId: 'song-1' } };
+        const details = vi.spyOn(omni, 'getSongDetails').mockResolvedValue([{ status: 'found', song } as never]);
+        const replace = vi.spyOn(omni, 'replaceCollectionTracks').mockResolvedValue();
+        const bridge = createFoliumSessionBridge(mod(['library.playlists']), 'main', () => false, () => {});
+        await expect(bridge.library.replacePlaylistSongs('playlist-1',
+            Array.from({ length: 501 }, (_, index) => ({ source: 'qq', id: `song-${index}` }))))
+            .rejects.toThrow(TypeError);
+        expect(details).not.toHaveBeenCalled();
+        vi.spyOn(omni, 'getSongDetails').mockResolvedValue([{ status: 'missing' } as never]);
+        await expect(bridge.library.replacePlaylistSongs('playlist-1', [{ source: 'qq', id: 'gone' }]))
+            .rejects.toMatchObject({ code: 'NOT_SUPPORTED' });
+        expect(replace).not.toHaveBeenCalled();
+    });
+
+    it('keeps only sane https card images and never fails a registration for them', async () => {
+        const radioEntriesModule = await import('@/mods/folium/radioEntries');
+        const setEntries = vi.spyOn(radioEntriesModule, 'setRadioEntries');
+        const bridge = createFoliumSessionBridge(mod(['ui.radio']), 'main', () => false, () => {});
+        expect(() => bridge.radio.registerEntries([
+            { id: 'morning', title: 'Morning', imageUrl: 'https://y.gtimg.cn/cover.jpg' },
+            { id: 'bad-scheme', title: 'Bad', imageUrl: 'http://evil.example/x.jpg' },
+            { id: 'bad-type', title: 'Bad', imageUrl: 42 as unknown as string },
+            { id: 'too-long', title: 'Bad', imageUrl: `https://x/${'y'.repeat(3000)}` },
+        ])).not.toThrow();
+        expect(setEntries).toHaveBeenCalledWith('radio-test', [
+            { modId: 'radio-test', id: 'morning', title: 'Morning', imageUrl: 'https://y.gtimg.cn/cover.jpg' },
+            { modId: 'radio-test', id: 'bad-scheme', title: 'Bad' },
+            { modId: 'radio-test', id: 'bad-type', title: 'Bad' },
+            { modId: 'radio-test', id: 'too-long', title: 'Bad' },
+        ]);
+        const cards = radioEntryCards([
+            { modId: 'radio-test', id: 'morning', title: 'Morning', imageUrl: 'https://y.gtimg.cn/cover.jpg' },
+            { modId: 'radio-test', id: 'bad-scheme', title: 'Bad' },
+        ], 'AI scenes');
+        expect(cards[0].coverUrl).toBe('https://y.gtimg.cn/cover.jpg');
+        expect(cards[1].coverUrl).toBeUndefined();
     });
 });

@@ -1072,6 +1072,7 @@ export default {
     "equalizerModCurveSave": "Lưu vào {{slot}} (thay thế)",
     "equalizerModCurveDormant": "Đường cong của mod \"{{name}}\" đang tạm dừng: mod đã bị tắt hoặc gỡ bỏ, và đường cong sẽ trở lại khi mod được bật lại. Việc thay đổi âm thanh ở đây sẽ loại bỏ nó.",
     "equalizerModCurveDiscard": "Hủy bỏ đường cong này",
+    "equalizerModProfile": "Âm thanh tạm thời do mod \"{{name}}\" điều khiển",
     "equalizerPreset": {
       "flat": "Flat",
       "lofi": "Lo-Fi",

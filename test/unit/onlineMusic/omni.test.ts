@@ -4,7 +4,7 @@ import { omni, PLAYLIST_ADD_BATCH } from '@/services/onlineMusic/omni';
 import { registerOnlineMusicProvider, unregisterOnlineMusicProvider } from '@/services/onlineMusic/providerRegistry';
 import { useOnlineProviderAccountStore } from '@/stores/useOnlineProviderAccountStore';
 import type { UnifiedSong } from '@/types';
-import type { OmniRequestRunner, OmniSongDetail, OnlineMusicProvider, ProviderCapabilities, ProviderCollection } from '@/types/onlineMusic';
+import type { MediaId, OmniRequestRunner, OmniSongDetail, OnlineMutationProvider, OnlineMusicProvider, ProviderCapabilities, ProviderCollection } from '@/types/onlineMusic';
 import { onlineFailureOf } from '@/services/onlineMusic/failure/onlineFailureCase';
 import { installOmniResultHooks } from '@/services/hostExtensionHooks';
 
@@ -1105,5 +1105,93 @@ describe('omni reads for callers beside the host UI', () => {
             const local = { ...listed(providerId), sourceRef: { kind: 'local', mediaId: 's1' } } as UnifiedSong;
             await expect(omni.getSongCatalogRefs(local)).resolves.toEqual({ album: null, artists: [] });
         });
+    });
+});
+
+describe('the playlist writes the Folium bridge makes', () => {
+    type UpdateTracks = NonNullable<OnlineMutationProvider['updatePlaylistTracks']>;
+    const mutableProvider = (existing: UnifiedSong[], updateTracks: UpdateTracks) => {
+        registerOnlineMusicProvider({
+            ...provider(providerId, { searchSongs: async () => ({ items: [], hasMore: false, nextOffset: 0 }) }),
+            capabilities: { ...capabilities, mutations: true, playlistTrackMutations: true, playlists: true },
+            mutations: {
+                updatePlaylistTracks: updateTracks,
+                createPlaylist: async (name: string) => ({ providerId, id: 'made', name, type: 'playlist' as const }),
+            },
+            catalog: { getPlaylistTracks: async () => ({ items: existing, hasMore: false, nextOffset: existing.length }) },
+            library: { getUserPlaylists: async () => ({ items: [], hasMore: false, nextOffset: 0 }) },
+        });
+        useOnlineProviderAccountStore.getState().setActiveProviderId(providerId);
+        useOnlineProviderAccountStore.getState().updateAccount(providerId, {
+            status: 'authenticated',
+            user: { id: 'user', nickname: 'User' },
+        });
+    };
+
+    afterEach(() => useOnlineProviderAccountStore.getState().clearAccount(providerId));
+
+    it('adds the missing tracks before deleting only the obsolete ones', async () => {
+        const ops: [string, MediaId[]][] = [];
+        const updateTracks = vi.fn<UpdateTracks>(async (op, _collection, tracks) => {
+            ops.push([op, tracks.map(track => (track as UnifiedSong).id)]);
+        });
+        const stale = song(providerId, 'stale');
+        const kept = song(providerId, 'keep');
+        mutableProvider([stale, kept], updateTracks);
+        const refresh = vi.spyOn(omni, 'refreshProviderPlaylists').mockResolvedValue([]);
+        const collection: ProviderCollection = { providerId, id: 'scene', name: 'Scene', type: 'playlist', isOwned: true };
+
+        await omni.replaceCollectionTracks(collection, [kept, song(providerId, 'fresh')], 'user', () => {});
+
+        expect(ops).toEqual([['add', ['fresh']], ['del', ['stale']]]);
+        expect(refresh).toHaveBeenCalledWith(providerId);
+    });
+
+    it('knows the same song by any shared identity, a numeric id or a mid', async () => {
+        const updateTracks = vi.fn<UpdateTracks>(async () => undefined);
+        const existingSong = {
+            ...song(providerId, 'mid-1'),
+            id: 7,
+            sourceRef: { kind: 'online' as const, providerId, mediaId: 'mid-1', providerData: { songId: 7, songMid: 'mid-1' } },
+        };
+        mutableProvider([existingSong], updateTracks);
+        vi.spyOn(omni, 'refreshProviderPlaylists').mockResolvedValue([]);
+        const collection: ProviderCollection = { providerId, id: 'scene', name: 'Scene', type: 'playlist', isOwned: true };
+        const requested = {
+            ...song(providerId, 'mid-1'),
+            id: 'mid-1',
+            sourceRef: { kind: 'online' as const, providerId, mediaId: 'mid-1', providerData: { songId: 7 } },
+        };
+
+        await omni.replaceCollectionTracks(collection, [requested], 'user', () => {});
+
+        expect(updateTracks).not.toHaveBeenCalled();
+    });
+
+    it('deletes nothing when the add phase fails', async () => {
+        const updateTracks = vi.fn<UpdateTracks>(async (op) => {
+            if (op === 'add') throw new Error('song id did not resolve');
+        });
+        mutableProvider([song(providerId, 'stale')], updateTracks);
+        const refresh = vi.spyOn(omni, 'refreshProviderPlaylists').mockResolvedValue([]);
+        refresh.mockClear();
+        const collection: ProviderCollection = { providerId, id: 'scene', name: 'Scene', type: 'playlist', isOwned: true };
+
+        await expect(omni.replaceCollectionTracks(collection, [song(providerId, 'fresh')], 'user', () => {}))
+            .rejects.toThrow('song id did not resolve');
+        expect(updateTracks).toHaveBeenCalledTimes(1);
+        expect(updateTracks.mock.calls[0]?.[0]).toBe('add');
+        expect(refresh).not.toHaveBeenCalled();
+    });
+
+    it('refreshes the playlist cache after creating an empty playlist', async () => {
+        mutableProvider([], vi.fn<UpdateTracks>(async () => undefined));
+        const refresh = vi.spyOn(omni, 'refreshProviderPlaylists').mockResolvedValue([]);
+        refresh.mockClear();
+
+        const created = await omni.createEmptyPlaylist('AI scene');
+
+        expect(created).toMatchObject({ id: 'made', name: 'AI scene' });
+        expect(refresh).toHaveBeenCalledWith(providerId);
     });
 });

@@ -45,7 +45,7 @@ export interface FoliumAudioFxService {
 /** Active online account's playlists, routed through the host's Omni facade. Needs `library.playlists`. */
 export interface FoliumLibraryService {
     /** Lists the active provider's user playlists; no playlist mutation occurs. */
-    listPlaylists(): Promise<{ id: string; title: string; trackCount?: number }[]>;
+    listPlaylists(): Promise<{ id: string; title: string; trackCount?: number; coverUrl?: string }[]>;
     /** Creates an empty playlist on the active provider; mods must track its returned ID themselves. */
     createPlaylist(title: string): Promise<{ id: string; title: string }>;
     /** Replaces all songs of an owned, editable playlist; unsupported providers reject with `NOT_SUPPORTED`. */
@@ -56,8 +56,12 @@ export interface FoliumLibraryService {
 
 /** Native radio-page entries owned by this mod's current activation. Needs `ui.radio`. */
 export interface FoliumRadioService {
-    /** Replaces this mod's radio cards; unloaded mods leave no cards behind. */
-    registerEntries(entries: { id: string; title: string; subtitle?: string }[]): void;
+    /**
+     * Replaces this mod's radio cards; unloaded mods leave no cards behind.
+     * `imageUrl` is the card's cover: only an `https://` URL of at most 2048 characters is kept;
+     * any other value is ignored and never fails the registration.
+     */
+    registerEntries(entries: { id: string; title: string; subtitle?: string; imageUrl?: string }[]): void;
     /** Called when a registered entry is clicked; use the same scene-start path as other UI. */
     onStartRequest(callback: (entryId: string) => void): void;
 }

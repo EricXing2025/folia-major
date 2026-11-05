@@ -1073,6 +1073,7 @@ export default {
     "equalizerModCurveSave": "Simpan ke {{slot}} (menggantinya)",
     "equalizerModCurveDormant": "Kurva dari mod \"{{name}}\" sedang ditahan: mod ini dinonaktifkan atau dihapus, dan kurvanya kembali saat mod diaktifkan lagi. Mengubah suara di sini akan membuangnya.",
     "equalizerModCurveDiscard": "Buang kurva ini",
+    "equalizerModProfile": "Suara untuk sementara dikendalikan oleh mod \"{{name}}\"",
     "equalizerPreset": {
       "flat": "Netral",
       "lofi": "Lo-Fi",

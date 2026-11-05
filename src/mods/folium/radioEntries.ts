@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 import type { LibraryHomeCard } from '../../library/core/home/homeModel.contract';
 
 // Session-only native radio entries; no mod survives teardown or persists a card.
-export type RadioEntry = { modId: string; id: string; title: string; subtitle?: string };
+export type RadioEntry = { modId: string; id: string; title: string; subtitle?: string; imageUrl?: string };
 const registrations = new Map<string, { entries: RadioEntry[]; start: ((id: string) => void) | null }>();
 const listeners = new Set<() => void>();
 let snapshot: RadioEntry[] = [];
@@ -42,6 +42,7 @@ export const radioEntryCards = (entries: readonly RadioEntry[], heading: string)
     type: 'scene-radio',
     description: heading,
     summary: entry.subtitle ?? '',
+    ...(entry.imageUrl ? { coverUrl: entry.imageUrl } : {}),
     raw: entry,
 }));
 

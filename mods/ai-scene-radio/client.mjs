@@ -68,6 +68,7 @@ export default function activate(folium) {
             library: folium.library, storage: folium.storage, log: folium.log,
             activeSource: () => folium.omni.listProviders().find(provider => provider.selected)?.providerId,
             accountKey: () => folium.account?.getState('qq')?.accountKey,
+            onSaved: () => refreshRadioCovers(),
         })
         : null;
     const radio = createRadio({
@@ -91,19 +92,41 @@ export default function activate(folium) {
         reading: 'Reading',
     };
 
-    if (folium.env?.context === 'main' && typeof folium.radio === 'object') {
+    // Scene playlist covers become card art once playlists exist; refresh picks up what a save made.
+    let sceneCovers = {};
+    const registerRadioCards = () => {
         try {
             folium.radio.registerEntries(radio.scenes().map(scene => ({
                 id: scene.id, title: scene.label, subtitle: `AI 电台 · ${scene.label}`,
+                imageUrl: sceneCovers[scene.id],
             })));
-            folium.radio.onStartRequest(id => { void radio.runScene(id); });
         } catch (error) {
             folium.log.warn('[ai-scene-radio] radio cards unavailable', error);
         }
+    };
+    const refreshRadioCovers = () => {
+        if (!playlistSync || folium.env?.context !== 'main' || typeof folium.radio !== 'object') return;
+        void playlistSync.covers(radio.scenes())
+            .then((found) => { sceneCovers = found; registerRadioCards(); })
+            .catch(() => {});
+    };
+
+    if (folium.env?.context === 'main' && typeof folium.radio === 'object') {
+        registerRadioCards();
+        try {
+            folium.radio.onStartRequest(id => { void radio.runScene(id); });
+        } catch (error) {
+            folium.log.warn('[ai-scene-radio] radio start hook unavailable', error);
+        }
+        refreshRadioCovers();
     }
 
+    // 仅在 linkAudioFx 由开到关的瞬间清音效；别的设置改动不该反复 clear。
+    let lastLinkAudioFx = section.settings.get().linkAudioFx;
     section.settings.onChange(() => {
-        if (section.settings.get().linkAudioFx === false) radio.clearAudioProfile();
+        const current = section.settings.get().linkAudioFx;
+        if (current === false && lastLinkAudioFx !== false) radio.clearAudioProfile();
+        lastLinkAudioFx = current;
     });
 
     for (const scene of radio.scenes()) {

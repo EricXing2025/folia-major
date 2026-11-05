@@ -244,6 +244,7 @@ const onAudioSettingsChange = (state: AudioSettingsState, previous: AudioSetting
         state.audioEqualizerSettings !== previous.audioEqualizerSettings
         || state.audioEqualizerModCurve !== previous.audioEqualizerModCurve
         || state.audioEqualizerModCurveSuspended !== previous.audioEqualizerModCurveSuspended
+        || state.audioProfileOverride !== previous.audioProfileOverride
     ) {
         noteChange(state.audioEqualizerChangeOrigin);
     } else if (state.isAudioEqualizerOpen !== previous.isAudioEqualizerOpen) {

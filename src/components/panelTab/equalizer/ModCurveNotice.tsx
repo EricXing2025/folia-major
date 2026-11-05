@@ -3,6 +3,7 @@ import { Puzzle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AUDIO_EQUALIZER_CUSTOM_SLOT_IDS } from '../../../utils/audioEqualizer';
 import { useAudioSettingsStore } from '../../../stores/useAudioSettingsStore';
+import { getFoliumModList } from '../../../mods/runtime/clientLoader';
 
 // src/components/panelTab/equalizer/ModCurveNotice.tsx
 // The note over the presets while a mod's equalizer curve is kept (Folium 1.7 `folium.equalizer`): whose it
@@ -18,9 +19,26 @@ const ModCurveNotice: React.FC = () => {
     const suspended = useAudioSettingsStore(state => state.audioEqualizerModCurveSuspended);
     const release = useAudioSettingsStore(state => state.handleReleaseModEqualizerCurve);
     const saveToSlot = useAudioSettingsStore(state => state.handleSaveModEqualizerCurveToSlot);
+    const profile = useAudioSettingsStore(state => state.audioProfileOverride);
+    const clearProfile = useAudioSettingsStore(state => state.clearAudioProfileOverride);
 
     if (!curve) {
-        return null;
+        // No kept curve, but a session profile has the sound: say who holds it and give the way back.
+        if (!profile) return null;
+        const name = getFoliumModList()?.find(mod => mod.id === profile.modId)?.name ?? profile.modId;
+        return (
+            <div className="mb-4 flex items-start gap-3 rounded-xl bg-[var(--st-card)] px-4 py-3 shadow-[0_0_0_1px_var(--st-line)]">
+                <Puzzle size={16} aria-hidden className="mt-0.5 shrink-0 text-[color:var(--st-t2)]" />
+                <div className="min-w-0 flex-1">
+                    <p className="text-[13px] leading-5">{t('ui.equalizerModProfile', { name })}</p>
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">
+                        <button type="button" className={ACTION_CLASS} onClick={() => clearProfile(profile.modId)}>
+                            {t('ui.equalizerModCurveRelease')}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
     }
 
     // The name the mod had when it put the curve there: it still reads after the mod is gone.

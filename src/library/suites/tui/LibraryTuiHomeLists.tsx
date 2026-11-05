@@ -163,12 +163,27 @@ export const LibraryTuiOnlineList: React.FC<LibraryTuiListCommonProps & {
             }}
         />
     );
-    return tab === 'radio' && radioEntries.length > 0 ? (
-        <div className="flex min-h-0 flex-1 flex-col">
-            <div className="px-4 py-2 text-xs font-semibold tracking-wide opacity-70">{t('aiSceneRadio.heading')}</div>
-            {directory}
-        </div>
-    ) : directory;
+    if (tab === 'radio' && radioEntries.length > 0) {
+        // 场景卡不藏登录入口：账号列表与目录都是全局键绑定，不能同挂两个交互列表，
+        // 用一行状态条保留入口说明（F2 随时打开完整平台列表）。
+        const accountLine = isGuest
+            ? (online.needsRelogin ? t('status.loginExpired') : t('home.guestTitle'))
+            : online.accountView === 'accountless'
+                ? t('libraryTui.accountless', { provider: online.providerLabel })
+                : null;
+        return (
+            <div className="flex min-h-0 flex-1 flex-col">
+                <div className="px-4 py-2 text-xs font-semibold tracking-wide opacity-70">{t('aiSceneRadio.heading')}</div>
+                {directory}
+                {accountLine ? (
+                    <div className="shrink-0 px-4 py-1 text-[12px] opacity-60" data-tui-home-status={isGuest ? 'guest' : 'accountless'}>
+                        {`${accountLine} ${t('libraryTui.accountsOpenHint')}`}
+                    </div>
+                ) : null}
+            </div>
+        );
+    }
+    return directory;
 };
 
 export const LibraryTuiLocalList: React.FC<LibraryTuiListCommonProps & {

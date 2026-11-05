@@ -847,6 +847,66 @@ test('建单请求在途切换音源或 QQ 账号，不记录跨账户 ID，也�
     }
 });
 
+test('建单被拒回滚只收走自己的预留：在途期间别的实例写进台账的键原样保留', async () => {
+    const scene = SCENES[0];
+    const storage = fakeStorage();
+    const sync = createScenePlaylistSync({
+        library: {
+            listPlaylists: async () => [],
+            createPlaylist: async () => {
+                // 另一个实例在请求在途期间写入的新台账：同一场景仍是 pending，另有别键。
+                storage._map.set(PLAYLIST_IDS_KEY, {
+                    'account-A': { [scene.id]: 'pending', 'work-evening': '777' },
+                    'account-B': { 'x': '1' },
+                });
+                throw Object.assign(new Error('unsupported'), { code: 'NOT_SUPPORTED' });
+            },
+        },
+        storage, activeSource: () => 'qq', accountKey: () => 'account-A',
+    });
+    sync.save(scene, [song(1, '红豆', '王菲')]);
+    await sync.settled();
+    assert.deepEqual(storage._map.get(PLAYLIST_IDS_KEY), {
+        'account-A': { 'work-evening': '777' },
+        'account-B': { 'x': '1' },
+    });
+});
+
+test('建单被拒时台账里已不是 pending 就不动它（新实例已记真 ID）', async () => {
+    const scene = SCENES[0];
+    const storage = fakeStorage();
+    const sync = createScenePlaylistSync({
+        library: {
+            listPlaylists: async () => [],
+            createPlaylist: async () => {
+                storage._map.set(PLAYLIST_IDS_KEY, { 'account-A': { [scene.id]: 'real-99' } });
+                throw Object.assign(new Error('unsupported'), { code: 'NOT_SUPPORTED' });
+            },
+        },
+        storage, activeSource: () => 'qq', accountKey: () => 'account-A',
+    });
+    sync.save(scene, [song(1, '红豆', '王菲')]);
+    await sync.settled();
+    assert.deepEqual(storage._map.get(PLAYLIST_IDS_KEY), { 'account-A': { [scene.id]: 'real-99' } });
+});
+
+test('歌单封面：台账命中的场景回 coverUrl，pending、他账号与无名条目不露头', async () => {
+    const scene = SCENES[0];
+    const storage = fakeStorage();
+    storage._map.set(PLAYLIST_IDS_KEY, {
+        'account-A': { [scene.id]: '123', 'work-evening': 'pending' },
+        'account-B': { 'x': '999' },
+    });
+    const library = {
+        listPlaylists: async () => [
+            { id: '123', title: playlistTitle(scene), coverUrl: 'https://y.gtimg.cn/cover.jpg' },
+            { id: '999', title: 'other', coverUrl: 'https://should-not-leak.example/x.jpg' },
+        ],
+    };
+    const sync = createScenePlaylistSync({ library, storage, activeSource: () => 'qq', accountKey: () => 'account-A' });
+    assert.deepEqual(await sync.covers(SCENES), { [scene.id]: 'https://y.gtimg.cn/cover.jpg' });
+});
+
 test('歌单 bridge 谓词同步拒绝时仅记日志，不会把开播后的队列重跑兜底', async () => {
     const playback = fakePlayback();
     const warns = [];
@@ -926,6 +986,44 @@ test('三个 namespace 分别缺失时 client 可启动原 v1 命令和路径', 
         assert.match(result.message, /兜底/, missing);
         disposers.forEach(dispose => dispose());
     }
+});
+
+test('设置变更只在 linkAudioFx 由开到关的跳变上清音效，无关改动不碰', async () => {
+    let settings = { linkAudioFx: true };
+    let onChange;
+    const clears = [];
+    const folium = {
+        host: { folium: { major: 1, minor: 8 } }, env: { context: 'main' },
+        net: { fetch: async () => llmResponse([]) },
+        omni: { ...fakeOmni(), listProviders: () => [{ selected: true, providerId: 'qq' }] },
+        playback: fakePlayback(), storage: fakeStorage(), secrets: fakeSecrets(null),
+        account: { getState: () => ({ accountKey: 'account-A' }) },
+        registries: {
+            settingsSections: { register: () => ({ settings: { get: () => settings, onChange: (fn) => { onChange = fn; } } }) },
+            commands: { register: () => {} },
+        },
+        log: { warn: () => {}, info: () => {} }, ui: { toast: () => {} },
+        events: { on: () => () => {} }, every: () => () => {},
+        onDispose: () => {},
+        library: { listPlaylists: async () => [], createPlaylist: async () => {}, replacePlaylistSongs: async () => {}, getPlaylistTracks: async () => [] },
+        audioFx: { applyProfile: async () => {}, clearProfile: async () => { clears.push(1); } },
+        radio: { registerEntries: () => {}, onStartRequest: () => {} },
+    };
+    activate(folium);
+    onChange();
+    assert.equal(clears.length, 0);              // 首次回调按「未变」处理
+    settings = { linkAudioFx: false };
+    onChange();
+    assert.equal(clears.length, 1);              // true → false：清
+    settings = { linkAudioFx: false, gatewayBase: 'https://other.example/v1' };
+    onChange();
+    assert.equal(clears.length, 1);              // 无关设置跳变：不清
+    settings = { linkAudioFx: true };
+    onChange();
+    assert.equal(clears.length, 1);              // false → true：不清
+    settings = { linkAudioFx: false };
+    onChange();
+    assert.equal(clears.length, 2);              // 再次 true → false：清
 });
 
 process.on('beforeExit', () => {

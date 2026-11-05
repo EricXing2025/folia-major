@@ -1073,6 +1073,7 @@ export default {
     "equalizerModCurveSave": "Save to {{slot}} (replaces it)",
     "equalizerModCurveDormant": "The curve of the mod \"{{name}}\" is on hold: the mod is disabled or removed, and the curve comes back when it is enabled again. Changing your sound here discards it.",
     "equalizerModCurveDiscard": "Discard this curve",
+    "equalizerModProfile": "The sound is temporarily controlled by the mod \"{{name}}\"",
     "equalizerPreset": {
       "flat": "Level",
       "lofi": "Lo-Fi",

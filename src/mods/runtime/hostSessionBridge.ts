@@ -1,5 +1,5 @@
 import type { FoliumAudioFxService, FoliumAudioProfile, FoliumLibraryService, FoliumRadioService } from '../folium/contract';
-import { removeRadioEntries, setRadioEntries, setRadioStart } from '../folium/radioEntries';
+import { removeRadioEntries, setRadioEntries, setRadioStart, type RadioEntry } from '../folium/radioEntries';
 import { registerFoliumSessionBridgeSource, type FoliumSessionBridgeHost } from '../folium/sessionBridge';
 import { useAudioSettingsStore } from '../../stores/useAudioSettingsStore';
 import { omni } from '../../services/onlineMusic/omni';
@@ -74,7 +74,10 @@ const createHostBridge = (modId: string, active: () => void): FoliumSessionBridg
         library: Object.freeze({
             listPlaylists: async () => {
                 const { items } = await playlists();
-                return items.map(item => ({ id: String(item.id), title: item.name, trackCount: item.trackCount }));
+                return items.map(item => ({
+                    id: String(item.id), title: item.name, trackCount: item.trackCount,
+                    ...(item.coverUrl ? { coverUrl: item.coverUrl } : {}),
+                }));
             },
             createPlaylist: async (title: string) => {
                 active();
@@ -85,17 +88,15 @@ const createHostBridge = (modId: string, active: () => void): FoliumSessionBridg
             },
             replacePlaylistSongs: async (id: string, tracks: { source: string; id: string }[]) => {
                 active();
-                if (typeof id !== 'string' || !Array.isArray(tracks)) throw new TypeError('invalid playlist request');
+                if (typeof id !== 'string' || !Array.isArray(tracks) || tracks.length > 500) throw new TypeError('invalid playlist request');
                 const { playlist, owner } = await find(id);
                 if (playlist.isOwned !== true || !omni.canEditCollectionTracks(playlist)) return notSupported();
                 if (tracks.some(track => track?.source !== playlist.providerId || typeof track.id !== 'string')) return notSupported();
-                const songs = await Promise.all(tracks.map(track => omni.getSongDetail(playlist.providerId, track.id)));
-                if (songs.some(song => !song)) return notSupported();
+                // One grouped lookup: providers answer at most their batch at a time, one after another.
+                const details = await omni.getSongDetails(playlist.providerId, tracks.map(track => track.id));
+                const songs = details.map(detail => (detail.status === 'found' ? detail.song : notSupported()));
                 sameAccount(owner);
-                await omni.replaceCollectionTracks(
-                    playlist, songs.filter((song): song is NonNullable<typeof song> => Boolean(song)),
-                    owner.user!.id, active,
-                );
+                await omni.replaceCollectionTracks(playlist, songs, owner.user!.id, active);
             },
             getPlaylistTracks: async (id: string) => {
                 active();
@@ -116,14 +117,22 @@ const createHostBridge = (modId: string, active: () => void): FoliumSessionBridg
             },
         }),
         radio: Object.freeze({
-            registerEntries: (entries: { id: string; title: string; subtitle?: string }[]) => {
+            registerEntries: (entries: { id: string; title: string; subtitle?: string; imageUrl?: string }[]) => {
                 active();
                 if (!Array.isArray(entries) || entries.length > 30
                     || entries.some(entry => !entry || typeof entry.id !== 'string' || !entry.id
                         || typeof entry.title !== 'string' || !entry.title
                         || (entry.subtitle !== undefined && typeof entry.subtitle !== 'string'))) throw new TypeError('invalid radio entries');
                 radioOwners.set(modId, token);
-                setRadioEntries(modId, entries.map(entry => ({ ...entry, modId })));
+                // A bad cover never fails a registration: only a sane https URL is kept.
+                setRadioEntries(modId, entries.map(entry => {
+                    const mapped: RadioEntry = { modId, id: entry.id, title: entry.title };
+                    if (entry.subtitle !== undefined) mapped.subtitle = entry.subtitle;
+                    if (typeof entry.imageUrl === 'string' && entry.imageUrl.startsWith('https://') && entry.imageUrl.length <= 2048) {
+                        mapped.imageUrl = entry.imageUrl;
+                    }
+                    return mapped;
+                }));
             },
             onStartRequest: (callback: (entryId: string) => void) => {
                 active();

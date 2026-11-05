@@ -2601,7 +2601,7 @@ Active online account's playlists, routed through the host's Omni facade. Needs 
 
 | 成员 | 类型 | 说明 |
 | --- | --- | --- |
-| `listPlaylists()` | `(): Promise<{ id: string; title: string; trackCount?: number }[]>` | Lists the active provider's user playlists; no playlist mutation occurs. |
+| `listPlaylists()` | `(): Promise<{ id: string; title: string; trackCount?: number; coverUrl?: string }[]>` | Lists the active provider's user playlists; no playlist mutation occurs. |
 | `createPlaylist()` | `(title: string): Promise<{ id: string; title: string }>` | Creates an empty playlist on the active provider; mods must track its returned ID themselves. |
 | `replacePlaylistSongs()` | `(id: string, tracks: { source: string; id: string }[]): Promise<void>` | Replaces all songs of an owned, editable playlist; unsupported providers reject with `NOT_SUPPORTED`. |
 | `getPlaylistTracks()` | `(id: string): Promise<{ source: string; id: string; title: string; artist: string }[]>` | Reads portable song identities from a playlist of the active provider. |
@@ -2612,7 +2612,7 @@ Native radio-page entries owned by this mod's current activation. Needs `ui.radi
 
 | 成员 | 类型 | 说明 |
 | --- | --- | --- |
-| `registerEntries()` | `(entries: { id: string; title: string; subtitle?: string }[]): void` | Replaces this mod's radio cards; unloaded mods leave no cards behind. |
+| `registerEntries()` | `(entries: { id: string; title: string; subtitle?: string; imageUrl?: string }[]): void` | Replaces this mod's radio cards; unloaded mods leave no cards behind. `imageUrl` is the card's cover: only an `https://` URL of at most 2048 characters is kept; any other value is ignored and never fails the registration. |
 | `onStartRequest()` | `(callback: (entryId: string) => void): void` | Called when a registered entry is clicked; use the same scene-start path as other UI. |
 
 ### FoliumId

@@ -331,9 +331,14 @@ export const useAudioSettingsStore = create<AudioSettingsState>((set, get) => ({
     audioEqualizerModCurve: readStoredAudioEqualizerModCurve(initialAudioEqualizerSettings),
     audioEqualizerModCurveSuspended: false,
     audioProfileOverride: null,
-    setAudioProfileOverride: (profile) => set({ audioProfileOverride: profile }),
+    setAudioProfileOverride: (profile) => set({
+        audioProfileOverride: profile,
+        audioEqualizerChangeOrigin: profile ? { kind: 'mod', modId: profile.modId } : HOST_ORIGIN,
+    }),
     clearAudioProfileOverride: (modId) => {
-        if (get().audioProfileOverride?.modId === modId) set({ audioProfileOverride: null });
+        if (get().audioProfileOverride?.modId === modId) {
+            set({ audioProfileOverride: null, audioEqualizerChangeOrigin: HOST_ORIGIN });
+        }
     },
     audioEqualizerChangeOrigin: HOST_ORIGIN,
     isAudioEqualizerOpen: false,
