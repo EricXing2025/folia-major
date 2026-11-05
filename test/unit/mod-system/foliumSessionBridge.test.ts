@@ -94,6 +94,12 @@ describe('permission-gated session bridges', () => {
         const replace = vi.spyOn(omni, 'replaceCollectionTracks').mockResolvedValue();
         const bridge = createFoliumSessionBridge(mod(['library.playlists']), 'main', () => false, () => {});
         expect(await bridge.library.listPlaylists()).toEqual([{ id: 'playlist-1', title: 'AI scene', trackCount: undefined }]);
+        const readTracks = vi.spyOn(omni, 'getCollectionTracks')
+            .mockResolvedValue({ items: [song as NonNullable<Awaited<ReturnType<typeof omni.getSongDetail>>>], hasMore: false, nextOffset: 1 });
+        expect(await bridge.library.getPlaylistTracks('playlist-1')).toEqual([
+            { source: 'qq', id: 'song-1', title: 'Song', artist: 'Artist' },
+        ]);
+        expect(readTracks).toHaveBeenCalledWith(owned, { offset: 0, limit: 100 });
         await bridge.library.replacePlaylistSongs('playlist-1', [{ source: 'qq', id: 'song-1' }]);
         expect(replace).toHaveBeenCalledWith(owned, [song], 'account-1', expect.any(Function));
         await expect(bridge.library.replacePlaylistSongs('untracked', [{ source: 'qq', id: 'song-1' }]))

@@ -723,7 +723,8 @@ export const omni = {
     /** Playlist writes for the Folium bridge use the same provider mutation path as the core UI. */
     async createEmptyPlaylist(title: string): Promise<OmniCollection> {
         const provider = activeProvider();
-        if (!providerSupports(provider, 'mutations') || !provider.mutations?.createPlaylist
+        if (!providerSupports(provider, 'mutations') || !providerSupports(provider, 'playlistTrackMutations')
+            || !provider.mutations?.createPlaylist
             || !provider.mutations?.updatePlaylistTracks) return unsupported(provider.id, 'playlist-creation');
         return provider.mutations.createPlaylist(title);
     },
