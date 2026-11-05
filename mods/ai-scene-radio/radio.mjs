@@ -234,6 +234,14 @@ export const createRadio = (deps) => {
         contFails: 0,
         lastFail: null,
         disposed: false,
+        // 接管武装（F15）：真机 activate 早于宿主队列水化，restore 此刻读到的常是
+        // 空队或 getQueue 直接抛错（host actions 未注册）——读不出不判死。武装保留
+        // 期间每条 queueChanged 重试接管；电台一旦以任何方式激活（restore 接管或
+        // runScene 开播）、手动停、连败停用、模组停用时解除，电台生命周期已终结后
+        // 不再复活接管。
+        restoreArmed: true,
+        // 武装期内首次读不出队列记一条日志（只记一次）：真机排查要靠它确认武装还在等。
+        restoreMissLogged: false,
     };
 
     const say = (message, type = 'info') => {
@@ -709,6 +717,9 @@ export const createRadio = (deps) => {
         state.generating = (async () => {
             if (!continuation) {
                 state.activeSceneId = sceneId;
+                // F15：电台经显式开播激活，接管武装同步终结（spec 停试条件含「用户点卡」）——
+                // 否则弃用电台后再放已存批次主体（如模组存的场景歌单）会被无动作复活接管。
+                state.restoreArmed = false;
                 say(`正在为「${scene.label}」生成电台…`);
             }
             let stage = 'llm';
@@ -808,6 +819,7 @@ export const createRadio = (deps) => {
         const stage = state.lastFail?.scene === sceneId ? state.lastFail.stage : null;
         state.activeSceneId = null;
         state.contFails = 0;
+        state.restoreArmed = false; // 停用是终局：下一条 queueChanged 不得再把它接管回来
         clearAudioProfile();
         say(
             `「${scene?.label ?? sceneId}」电台生成失败（${STAGE_LABELS[stage] || '生成'}环节），已停止自动续播`,
@@ -818,7 +830,21 @@ export const createRadio = (deps) => {
     // queueChanged：队列里我们的歌全没了→停用电台；剩 ≤3 首→自动续单。
     // 续单失败升级一次整队新生成（等同手动点卡）；整队也败或连败到顶 → 停用报可见错误（F10）。
     const onQueueChanged = async () => {
-        if (!state.activeSceneId || state.generating || state.disposed) return;
+        if (state.disposed) return;
+        // 电台还没接管（F15）：activate 早于队列水化，restore 当时读不到批次队列；
+        // 之后每条 queueChanged 重试接管，直到接管（restore 末尾接着做续单判定）、
+        // 用户点了场景卡（activeSceneId 置位使 restore 短路）、或武装被解除。
+        if (!state.activeSceneId) {
+            if (state.restoreArmed && !state.generating) {
+                try {
+                    await restore();
+                } catch (error) {
+                    log?.warn?.('[ai-scene-radio] restore retry failed', error);
+                }
+            }
+            return;
+        }
+        if (state.generating) return;
         let snapshot;
         try {
             snapshot = playback.getQueue();
@@ -926,34 +952,36 @@ export const createRadio = (deps) => {
 
     // 激活恢复：停用→启用或 App 重启后内存态全丢，若当前队列主体等于某场景已存批次，
     // 恢复该场景为 activeSceneId 并重建 queuedKeys，在播批次重新获得自动续单（F10）。
+    // F15：读队列走与续单相同的整队路径 queueSongsNow——激活时点 getQueue 常抛错或
+    // 返回空队（host actions 未注册、水化未完成），null/空不判死，armed 保留，
+    // 由 onQueueChanged 在未接管时逐条重试本函数；接管成功或解除武装后不再进。
     const restore = async () => {
-        if (state.disposed || state.activeSceneId) return;
-        let snapshot;
-        try {
-            snapshot = playback.getQueue();
-        } catch (error) {
-            log?.warn?.('[ai-scene-radio] restore: queue read failed', error);
+        if (state.disposed || state.activeSceneId || !state.restoreArmed) return;
+        const queueSongs = queueSongsNow();
+        if (!queueSongs?.length) {
+            if (!state.restoreMissLogged) {
+                state.restoreMissLogged = true;
+                log?.info?.('[ai-scene-radio] restore: queue unreadable/empty; staying armed for queueChanged retry');
+            }
             return;
         }
-        if (!snapshot || snapshot.kind !== 'queue' || !snapshot.length) return;
-        let queueSongs;
-        if (!Array.isArray(snapshot.items)) return;
-        if (snapshot.items.length === snapshot.length) {
-            queueSongs = snapshot.items.map((item) => item.song);
-        } else {
-            let whole = null;
-            try {
-                whole = readWholeQueue();
-            } catch (error) {
-                log?.warn?.('[ai-scene-radio] restore: queue pages read failed', error);
-                return;
-            }
-            if (!whole) return;
-            queueSongs = whole.songs;
+        // 记下读队版本：await data() 期间队列若被改，手上快照过期——按旧队接管会往
+        // 用户新队尾续歌。版本不一致就放弃本次，队列变化自己已派发 queueChanged 会重评。
+        let versionAtRead = null;
+        try {
+            versionAtRead = playback.getQueue()?.version ?? null;
+        } catch {
+            versionAtRead = null;
         }
-        if (!queueSongs.length) return;
         const { batches } = await data();
-        if (state.disposed || state.activeSceneId) return; // await 期间用户已自行操作
+        if (state.disposed || state.activeSceneId || !state.restoreArmed) return; // await 期间用户已自行操作
+        let versionNow = null;
+        try {
+            versionNow = playback.getQueue()?.version ?? null;
+        } catch {
+            return; // 连版本都读不出：下次事件再判
+        }
+        if (versionNow !== versionAtRead) return;
         let best = null;
         for (const sceneId of Object.keys(batches)) {
             const entries = Array.isArray(batches[sceneId]) ? batches[sceneId] : [];
@@ -982,6 +1010,7 @@ export const createRadio = (deps) => {
         }
         if (shown && !best.keys.has(songIdentity(shown)) && !best.keys.has(pairIdentity(shown))) return;
         state.activeSceneId = best.sceneId;
+        state.restoreArmed = false; // 接管定案：之后 queueChanged 不再重试本函数
         for (const key of best.keys) state.queuedKeys.add(key);
         for (const song of best.matches) {
             state.queuedKeys.add(songIdentity(song));
@@ -1028,6 +1057,7 @@ export const createRadio = (deps) => {
     const stop = () => {
         state.activeSceneId = null;
         state.contFails = 0;
+        state.restoreArmed = false; // 用户手动停了续播：同样不复活接管
         clearAudioProfile();
     };
 
@@ -1035,6 +1065,7 @@ export const createRadio = (deps) => {
     const dispose = () => {
         state.disposed = true;
         state.activeSceneId = null;
+        state.restoreArmed = false;
         playlistSync?.dispose?.();
         clearAudioProfile();
     };

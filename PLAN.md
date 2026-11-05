@@ -223,3 +223,34 @@ Argon 独立审查修复 F1–F7 + 新功能 F8（电台卡片封面）。已核
 
 - `node mods/ai-scene-radio/tests/run.mjs` → **70 tests passed**（较上轮 +4：镜像>50 快照腿只取末批、F12 无在播歌放行、F12 比例闸拒绝、batchCovers 续单更新；另有 client 用例扩到 batchCovers 优先语义）。
 - `npm run folium:check ai-scene-radio` exit 0 `no problem found`；`npm run typecheck` exit 0。宿主文件零改动，无定向宿主单测需跑。
+
+---
+
+# PLAN — 修复批第四轮 F15（fix/v2-argon-batch 追加，2026-11-05）
+
+基线 4a4b49cf（v1.1.1 已装机）。真机复现：重启后 restore 不接管（纯净批次队列与混合长队列均败）；fake 宿主单测全过 → 缺口在模组与真实宿主的集成面。只动 `mods/ai-scene-radio/{radio.mjs,tests/run.mjs,README.md}`，宿主源码零改动。
+
+## 定位结论（源码证据）
+
+- **restore 何时被调**：`client.mjs` activate 内 `void radio.restore()` 同步执行；activate 由 `clientLoader.ts:124`（runClient→module.default）在 `initFoliumClients` 内驱动，而 `bootstrap.tsx:98-122` 的 `bootFolium()` 必须先于 `renderApp()` settle——**activate 严格早于 React 首提交**。
+- **激活时点宿主状态**：①`folium.playback` 的 hostActions 由 `useFoliumHostActions` 的 `useEffect` 注册（`hostActions.ts:86-164`，挂点 `App.tsx:2116`），首提交后才存在 → `getQueue` 走 `services.ts:91-95 requireActions` 必抛 `playback-unavailable-in-main-context` → 被 `radio.mjs` restore 捕获记 warn 后返回。②即便 actions 已注册，`usePlaybackStore.playQueue` 初值 `[]`（`usePlaybackStore.ts:136`）；队列由 `useSessionRestoreController` 挂载后异步 `restoreSession` 读 `getFromCache('last_queue')` 再 `setPlayQueue` 回填（`useSessionRestoreController.ts:104-170`），或窗口交接 `useElectronWindowPlaybackHandoff.ts:306` → 快照必空 → `!snapshot.length` 早退。
+- **水化完成后**：`setPlayQueue` 触发 `hostEvents.ts:171 queueOutlineChanged → queueMicrotask(emitQueueChanged)` → `playback.queueChanged` 到达模组（模组在 activate 已订阅），但旧 `onQueueChanged` 因 `!state.activeSceneId` 直接 return——接管永远不再评估，队列耗尽即停。即真机现象。
+- **身份形状非缺口**：`persistPlaybackCache.ts:7-28` 存整棵 SongResult（`id`/`sourceRef`/`artists`/`providerData` 全保留），回填 `normalizePlaybackSongSource`（`appPlaybackGuards.ts:68-70`）保 `sourceRef`；`toFoliumSong`（`dto.ts:206-216`）产出与生成时同形的 `id/source/title/artist`，`id:<provider>:<id>` 与 `pair:` 双键均可命中。
+- **getState().song 启动时**：`selectDisplaySong`→`transitionDisplay?.song ?? currentSong`（`usePlaybackStore.ts:211`），`currentSong` 初值 `null` → `song:null`（或抛错被 catch 成 null）→ F12 第三条按无歌放行，非缺口。
+- readWholeQueue 激活时点：`getQueue` 先抛，分页没机会跑。
+
+## 改法
+
+- `state.restoreArmed`（初值 true）：接管武装，语义＝「本次 activate 以来电台从未以任何方式激活」。`onQueueChanged` 在 `!activeSceneId` 分支改为「armed 且非 generating 时 `await restore()` 再返回」——每条 queueChanged 事件驱动重试（宿主 microtask 合批，天然限速，无定时器/轮询）。解除点：`restore` 接管成功、`runScene` 非续单分支置 activeSceneId 处（用户点卡＝spec 停试条件，且修复复审中项——否则弃用电台再放已存批次主体会复活接管）、`stop()`、`disableRadio()`、`dispose()`。
+- `restore()` 读队列改走 `queueSongsNow()`（与续单同一条整队路径：kind 非 queue/异常/分页不一致 → null，空 → []）：激活时点抛错或空读静默返回不判死（武装期首读记一条 info 便于真机排查）。`await data()` 前记 `getQueue().version`、await 后复查不一致即放弃本次（队列变化自身已派发 queueChanged 重评——关掉按过期快照往用户新队尾续歌的窗口）；同点复查 `disposed/activeSceneId/restoreArmed`。接管成功灌 queuedKeys、`applyAudioProfile`、走一遍 onQueueChanged 续单判定——F12 三条件原样未动。
+
+## 验证
+
+- `node mods/ai-scene-radio/tests/run.mjs`：新增 5 条——①激活时空队、queueChanged 水化后迟到接管+队尾续单（修复前红）；②getQueue 抛错（宿主未注册）后同样迟到接管（修复前红）；③水化出用户队列不接管不发 LLM；④stop() 解除武装后队列变化不复活；⑤手动开播→用户换队→批次主体队列不复活接管（复审中项，修复前红）。修复后 **75 tests passed**。
+- `npm run folium:check ai-scene-radio` exit 0 `no problem found`；`npm run typecheck` exit 0。宿主文件零改动，无定向宿主单测需跑。
+
+## 独立复审（1 轮，explore 子代理）
+
+1 中 + 4 低。**中 M1（必修已修）**：`restoreArmed` 解除不对称——手动 `runScene` 开播不清武装，弃用电台后再放已存批次主体（最现实：模组自存的「AI 电台」歌单，F12 全过）会无动作复活接管，与「接管后换队」路径语义不对称。修为 `runScene` 非续单分支置 `activeSceneId` 处同步 `restoreArmed=false`（armed 严格＝「电台从未激活」），新增用例⑤钉住，修复前红修后绿。**低项采纳修复**：L2 `await data()` 期间队列漂移窗口（按过期快照接管可能往用户新队尾续歌）→ 加 version 前后复查；L3 武装期读不出队列完全静默 → 首读记一条 info。**低项复核不成立**：L1「并发 restore 双跑」——`await data()` 之后到置 `activeSceneId` 的接管段是同步代码，第二实例复查必见已置位早退，无重复副作用，且并发实例必须各读新队列、不能去重合流（合流会用旧队列错过水化窗口）。**低项记录在案不修**：L4 其余覆盖缺口（disableRadio/dispose 解除武装、接管后 armed=false 的直接断言）由 disposed 闸与既有全链用例间接覆盖，边际价值低。
+
+

@@ -24,7 +24,7 @@
 2. `folium.net.fetch` 调 `${base}/chat/completions`（Bearer + 浏览器 UA——网关在 Cloudflare 后，无 UA 被 403/1010；timeout 45s）。
 3. `folium.omni` 逐首核验：确切版本（标题归一全等 > 剥括号同名，歌手须有交集）、非下架、去重与已播避重。
 4. `replaceQueue` 整队送播（expectedVersion 乐观锁，stale-version/rate-limited 重读重试 ≤3）；开播 `playQueueItem(0)`。
-5. 队列剩 ≤3 首自动续单（新歌接尾）；续单失败先升级一次整队新生成（等同手动点卡），整队也败才停用并报错。队列里电台的歌全被换掉自动停用；模组激活时若在播队列主体等于某场景已存批次，自动续单随激活恢复。
+5. 队列剩 ≤3 首自动续单（新歌接尾）；续单失败先升级一次整队新生成（等同手动点卡），整队也败才停用并报错。队列里电台的歌全被换掉自动停用；激活后若队列主体等于某场景已存批次，自动续单接管恢复——宿主队列水化晚于 activate，接管在电台未激活前挂在 queueChanged 上重试，接管成功、手动点卡开播、停续播、连败停用或模组停用后不再试。
 6. 反馈：每秒采 `getState().position`，`songChanged` 时 <30s 记 `neg`、≥85% 或距尾 ≤15s 记 `pos`、其余 `heard`，入 `folium.storage`（cap 300，只存 `{s,i,t,a}`，**不存 ref**）。
 
 ## 兜底链（生成失败 / 无 key / 核验为空 / 送播被拒）

@@ -1791,6 +1791,157 @@ test('全链 F10/F11/F12/F14：激活恢复 → 静默复活一次 → 队尾再
     assert.equal(diag.stage, 'fallback');
 });
 
+// ---------------------------------------------------------------- F15：迟到接管（真机 activate 早于队列水化）
+
+console.log('F15 late restore (queue rehydrates after activate)');
+
+test('F15：激活时队列为空（水化未完成），queueChanged 填充后迟到接管且队尾续单', async () => {
+    const batchSongs = Array.from({ length: 8 }, (_, i) => song(i + 1, `电台歌${i + 1}`, '王菲'));
+    // 激活时点：宿主 playQueue 还是 []（restoreSession 尚未 setPlayQueue）。
+    const playback = fakePlayback({ items: [], currentIndex: -1 });
+    const storage = fakeStorage();
+    storage._map.set(STORAGE_KEY, {
+        history: [],
+        batches: { driving: batchSongs.map((s) => ({ s: 'qq', i: s.id, t: s.title, a: s.artist })) },
+    });
+    const omni = makeOmniFor({
+        笑忘书: [song(9, '笑忘书', '王菲')],
+        至少还有你: [song(10, '至少还有你', '林忆莲')],
+        爱情: [song(11, '爱情', '莫文蔚')],
+    });
+    const { deps, record } = makeDeps({
+        fetch: async () => llmResponse([
+            { title: '笑忘书', artist: '王菲' },
+            { title: '至少还有你', artist: '林忆莲' },
+            { title: '爱情', artist: '莫文蔚' },
+        ]),
+        omni, playback, storage,
+    });
+    const radio = createRadio(deps);
+    await radio.restore(); // 激活时跑一次：空队 → 不接管，但武装保留
+    assert.equal(radio._state.activeSceneId, null);
+    // 水化完成：宿主 setPlayQueue → 派发 playback.queueChanged（模组侧走 onQueueChanged）
+    playback._songs().push(...batchSongs);
+    playback._setIndex(6); // 剩 1 ≤3：接管后应立刻续单
+    await radio.onQueueChanged();
+    assert.equal(radio._state.activeSceneId, 'driving', '水化后的 queueChanged 应迟到接管');
+    assert.equal(record.fetches.length, 1, '接管后队尾应立即续单');
+    assert.deepEqual(playback._calls.replace[0].titles.slice(0, 8), batchSongs.map((s) => s.title));
+});
+
+test('F15：激活时 getQueue 抛错（宿主动作未注册），水化后同样迟到接管', async () => {
+    const batchSongs = Array.from({ length: 8 }, (_, i) => song(i + 1, `电台歌${i + 1}`, '王菲'));
+    const playback = fakePlayback({ items: batchSongs, currentIndex: 6 });
+    const storage = fakeStorage();
+    storage._map.set(STORAGE_KEY, {
+        history: [],
+        batches: { driving: batchSongs.map((s) => ({ s: 'qq', i: s.id, t: s.title, a: s.artist })) },
+    });
+    const omni = makeOmniFor({
+        笑忘书: [song(9, '笑忘书', '王菲')],
+        至少还有你: [song(10, '至少还有你', '林忆莲')],
+        爱情: [song(11, '爱情', '莫文蔚')],
+    });
+    const { deps, record } = makeDeps({
+        fetch: async () => llmResponse([
+            { title: '笑忘书', artist: '王菲' },
+            { title: '至少还有你', artist: '林忆莲' },
+            { title: '爱情', artist: '莫文蔚' },
+        ]),
+        omni, playback, storage,
+    });
+    const radio = createRadio(deps);
+    // 真机 activate 早于 App 首提交：requireActions 未注册，getQueue 必抛。
+    const realGetQueue = playback.getQueue;
+    playback.getQueue = () => { throw new Error('playback-unavailable-in-main-context'); };
+    await radio.restore();
+    assert.equal(radio._state.activeSceneId, null);
+    playback.getQueue = realGetQueue; // actions 注册 + 队列水化 → queueChanged
+    await radio.onQueueChanged();
+    assert.equal(radio._state.activeSceneId, 'driving', '注册+水化后的 queueChanged 应迟到接管');
+    assert.equal(record.fetches.length, 1, '接管后队尾应立即续单');
+});
+
+test('F15：水化出用户自己的队列 → 迟到评估仍不接管、不发 LLM', async () => {
+    const playback = fakePlayback({ items: [], currentIndex: -1 });
+    const storage = fakeStorage();
+    storage._map.set(STORAGE_KEY, {
+        history: [],
+        batches: { driving: [
+            { s: 'qq', i: '1', t: '红豆', a: '王菲' },
+            { s: 'qq', i: '2', t: '阴天', a: '莫文蔚' },
+            { s: 'qq', i: '3', t: '遇见', a: '孙燕姿' },
+        ] },
+    });
+    const { deps, record } = makeDeps({ playback, storage });
+    const radio = createRadio(deps);
+    await radio.restore();
+    playback._songs().push(song(1, '红豆', '王菲'), song(91, '用户歌1', '某人'), song(92, '用户歌2', '某人'), song(93, '用户歌3', '某人'));
+    playback._setIndex(0);
+    await radio.onQueueChanged();
+    assert.equal(radio._state.activeSceneId, null, '命中 1/4 不算队列主体，不得接管');
+    assert.equal(record.fetches.length, 0);
+});
+
+test('F15：stop() 解除接管武装——之后队列变化不再复活电台', async () => {
+    const batchSongs = Array.from({ length: 8 }, (_, i) => song(i + 1, `电台歌${i + 1}`, '王菲'));
+    const playback = fakePlayback({ items: batchSongs, currentIndex: 2 });
+    const storage = fakeStorage();
+    storage._map.set(STORAGE_KEY, {
+        history: [],
+        batches: { driving: batchSongs.map((s) => ({ s: 'qq', i: s.id, t: s.title, a: s.artist })) },
+    });
+    const { deps, record } = makeDeps({ playback, storage });
+    const radio = createRadio(deps);
+    await radio.restore();
+    assert.equal(radio._state.activeSceneId, 'driving');
+    radio.stop();
+    assert.equal(radio._state.activeSceneId, null);
+    playback._setIndex(6); // 用户把同一批继续放到队尾
+    await radio.onQueueChanged();
+    assert.equal(radio._state.activeSceneId, null, 'stop 之后不得重新接管');
+    assert.equal(record.fetches.length, 0, 'stop 之后不得再发 LLM');
+});
+
+test('F15：手动开播即解除武装——弃用电台再放已存批次主体不复活接管', async () => {
+    // 复审中项：restoreArmed 只在接管/stop/disable/dispose 解除。若手动 runScene 开播
+    // 后不清武装，用户换掉队列再放「AI 电台」歌单（主体恰是已存批次，F12 三条件全过）
+    // 会被无动作复活接管——与「接管后换队」路径语义不对称。
+    const batchSongs = Array.from({ length: 8 }, (_, i) => song(i + 1, `电台歌${i + 1}`, '王菲'));
+    const playback = fakePlayback();
+    const storage = fakeStorage();
+    storage._map.set(STORAGE_KEY, {
+        history: [],
+        batches: { driving: batchSongs.map((s) => ({ s: 'qq', i: s.id, t: s.title, a: s.artist })) },
+    });
+    const omni = makeOmniFor({
+        红豆: [song(50, '红豆', '王菲')],
+        阴天: [song(51, '阴天', '莫文蔚')],
+        遇见: [song(52, '遇见', '孙燕姿')],
+    });
+    const { deps, record } = makeDeps({
+        fetch: async () => llmResponse([
+            { title: '红豆', artist: '王菲' },
+            { title: '阴天', artist: '莫文蔚' },
+            { title: '遇见', artist: '孙燕姿' },
+        ]),
+        omni, playback, storage,
+    });
+    const radio = createRadio(deps);
+    assert.equal(await radio.runScene('work-morning'), 'ok'); // 用户显式点卡：spec 停试条件，武装终结
+    assert.equal(radio._state.activeSceneId, 'work-morning');
+    // 用户整队换成自己的歌 → 电台静默停用
+    await playback.replaceQueue([song(90, '用户歌1', '某人'), song(91, '用户歌2', '某人')], { expectedVersion: playback.getQueue().version });
+    await radio.onQueueChanged();
+    assert.equal(radio._state.activeSceneId, null);
+    // 用户随后播放的队列主体恰是已存 driving 批次镜像，显示歌也在集内（F12 全过的复活面）
+    await playback.replaceQueue(batchSongs, { expectedVersion: playback.getQueue().version });
+    playback._setIndex(0);
+    await radio.onQueueChanged();
+    assert.equal(radio._state.activeSceneId, null, '电台已被用户换掉后不得复活接管');
+    assert.equal(record.fetches.length, 1, '复活接管会再发 LLM');
+});
+
 // ---------------------------------------------------------------- F8b：场景卡二档封面
 
 console.log('F8b scene card covers');
