@@ -1184,6 +1184,20 @@ describe('the playlist writes the Folium bridge makes', () => {
         expect(refresh).not.toHaveBeenCalled();
     });
 
+    it('stops before the delete phase when the account changed mid-replace', async () => {
+        const updateTracks = vi.fn<UpdateTracks>(async (op) => {
+            if (op === 'add') useOnlineProviderAccountStore.getState().clearAccount(providerId);
+        });
+        mutableProvider([song(providerId, 'stale')], updateTracks);
+        vi.spyOn(omni, 'refreshProviderPlaylists').mockResolvedValue([]);
+        const collection: ProviderCollection = { providerId, id: 'scene', name: 'Scene', type: 'playlist', isOwned: true };
+
+        await expect(omni.replaceCollectionTracks(collection, [song(providerId, 'fresh')], 'user', () => {}))
+            .rejects.toThrow();
+        expect(updateTracks).toHaveBeenCalledTimes(1);
+        expect(updateTracks.mock.calls[0]?.[0]).toBe('add');
+    });
+
     it('refreshes the playlist cache after creating an empty playlist', async () => {
         mutableProvider([], vi.fn<UpdateTracks>(async () => undefined));
         const refresh = vi.spyOn(omni, 'refreshProviderPlaylists').mockResolvedValue([]);

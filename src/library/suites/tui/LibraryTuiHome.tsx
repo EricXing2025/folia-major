@@ -138,8 +138,7 @@ const LibraryTuiHome: React.FC<LibraryHomeSurfaceProps> = (props) => {
             setAccountsOpen(true);
             return;
         }
-        // 未登录时平台列表本来就是在线页签的内容，F2 不另开一层。
-        if (isGuest) return;
+        // 未登录时平台列表本来就是在线页签的内容，除非场景卡把它挤成一行提示——那时 F2 仍能打开。
         setAccountsOpen(open => !open);
     };
 

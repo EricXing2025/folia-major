@@ -890,6 +890,24 @@ test('建单被拒时台账里已不是 pending 就不动它（新实例已记�
     assert.deepEqual(storage._map.get(PLAYLIST_IDS_KEY), { 'account-A': { [scene.id]: 'real-99' } });
 });
 
+test('模组已停用时建单被拒不回滚：pending 原样留给台账', async () => {
+    const scene = SCENES[0];
+    const storage = fakeStorage();
+    const sync = createScenePlaylistSync({
+        library: {
+            listPlaylists: async () => [],
+            createPlaylist: async () => {
+                sync.dispose();
+                throw Object.assign(new Error('unsupported'), { code: 'NOT_SUPPORTED' });
+            },
+        },
+        storage, activeSource: () => 'qq', accountKey: () => 'account-A',
+    });
+    sync.save(scene, [song(1, '红豆', '王菲')]);
+    await sync.settled();
+    assert.deepEqual(storage._map.get(PLAYLIST_IDS_KEY), { 'account-A': { [scene.id]: 'pending' } });
+});
+
 test('歌单封面：台账命中的场景回 coverUrl，pending、他账号与无名条目不露头', async () => {
     const scene = SCENES[0];
     const storage = fakeStorage();

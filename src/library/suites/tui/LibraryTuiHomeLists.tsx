@@ -85,7 +85,7 @@ export const LibraryTuiOnlineList: React.FC<LibraryTuiListCommonProps & {
     online: LibraryHomeOnlineSource;
     list: LibraryHomeOnlineList;
     account: LibraryAccountController;
-    /** F2 打开了平台列表（已登录、无账户、解析中时；未登录时列表总是显示）。 */
+    /** F2 打开了平台列表（已登录、无账户、解析中时；未登录且无场景卡时列表总是显示）。 */
     accountsOpen: boolean;
     onCloseAccounts: () => void;
 }> = ({ tab, online, list, account, accountsOpen, onCloseAccounts, homeActions, onOpenGridView, directoryKey, hiddenScope, ...common }) => {
@@ -131,7 +131,7 @@ export const LibraryTuiOnlineList: React.FC<LibraryTuiListCommonProps & {
                 accentColor={common.accentColor}
                 isDaylight={common.isDaylight}
                 heading={heading}
-                onClose={isGuest ? undefined : onCloseAccounts}
+                onClose={isGuest && !accountsOpen ? undefined : onCloseAccounts}
             />
         );
     }

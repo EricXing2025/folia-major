@@ -101,6 +101,8 @@ export const createScenePlaylistSync = ({ library, storage, log, activeSource, a
         ));
         if (!tracked.length) return {};
         const items = await library.listPlaylists();
+        // 与 owned 同一套在途复查：读期间换号、切源或停用，台账匹配的结论已过期。
+        if (disposed || accountKey?.() !== key || activeSource?.() !== 'qq') return {};
         const result = {};
         for (const scene of tracked) {
             const found = items.find(item => item.id === ids[scene.id] && item.title === playlistTitle(scene));
