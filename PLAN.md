@@ -117,3 +117,34 @@ Base `bcfe33b9` on `feat/ai-scene-radio`. Preserve this pre-existing v1 plan and
 
 - Tests: mod `node mods/ai-scene-radio/tests/run.mjs`, targeted mod-system/audio/omni Vitest, `npm run folium:check ai-scene-radio`, `npm run typecheck`. Include profile table, exact playlist ownership, all three missing bridges, fallback order, profile cleanup and denied permissions. Do not call live QQ or LLM in automated checks.
 - Only v2 source/tests/docs in logical commits; leave existing lockfile diff untouched. Independent read-only review of full diff before delivery; local verification only, no production, GitHub Actions or account writes.
+
+---
+
+# PLAN — v2 修复批（fix/v2-argon-batch，基线 feat/v2-core-bridge @ 313300e3）
+
+Argon 独立审查修复 F1–F7 + 新功能 F8（电台卡片封面）。已核实的关键事实：
+
+- `omni.getSongDetails(providerId, ids)` 已存在，返回 `OmniSongDetail[]`（found/missing/failed/skipped），QQ 侧 `songDetailsPerRequest: 25` 按组顺序发——简报说的「`(UnifiedSong | null)[]`」实际是包装后的形态，按 status !== 'found' → NOT_SUPPORTED 处理。
+- `normalizeQqSong` 同写 `song.id`（数字 songId，缺省退 songMid）、`song.qqMid`、`sourceRef.mediaId`（songMid）、`providerData.{songId,songMid,mediaMid}`。`platformNameCount` 按行正则计数，`omni.ts` 不允许出现 `qq` 字样（platformNamePlaces 配额 netease:5 / kugou:2 / qq:0）——匹配键不写 `qqMid`，用 `id + mediaId + providerData.{songId,songMid,mediaMid}` 等价覆盖。
+- `ProviderCollection.coverUrl` 已存在；`normalizeQqCollection` 取 `bigpicUrl/picUrl/picurl/coverUrl`，不含上游歌单的 `logo`——补进 pick 列表。
+- `mods/folium.d.ts` 与 `docs/folium/api.md` 由 `npm run folium:types` / `folium:api` 从 contract.ts 生成，改源头再跑脚本。
+- TUI 的目录与账号列表都是 window 级键绑定（useLibraryTuiDirectoryKeys / useLibraryTuiAccountListKeys），同挂会抢键：F7 在 TUI 不叠两个交互列表，改为目录照常 + 底部状态行（原因 + F2 提示，F2 开完整平台列表）。
+- Grid 的 OnlineProviderAccountlessPanel / HomeLoginPanel 均为 flex-1 整面板；Bravais 的 guest 提示（wallHint/accountless 文案）不动；Grid/Bravais 的卡片渲染均按 `item.coverUrl` 通用走，scene-radio 无特判，TUI 纯文本无图属固有。
+- `getFoliumModList`（clientLoader）可被组件引用（components 已有 mods/runtime 引用先例），用于 modId→友好名。
+
+## 逐项落地
+
+- **F1** `hostSessionBridge.replacePlaylistSongs`：`tracks.length > 500` 并入现有 TypeError 校验行；`Promise.all(getSongDetail)` → 一次 `omni.getSongDetails(providerId, tracks.map(t => t.id))`；任一 `status !== 'found'` → NOT_SUPPORTED；`sameAccount(owner)` 保持在解析后、写入前。
+- **F2** `omni.replaceCollectionTracks`：分页读旧（不变）→ 差量：新列表只 add 现有没有的，现有只 del 不在新列表的；`stillCurrent()` 于 add 前、add/del 之间各一次；add 抛错不再 del（旧歌零删除）。`createEmptyPlaylist` 与 `replaceCollectionTracks` 成功结尾各补 `void this.refreshProviderPlaylists(provider.id).catch(() => undefined)`。
+- **F3** `setAudioProfileOverride` set 时写 `audioEqualizerChangeOrigin: { kind:'mod', modId }`（profile 为 null 时写 HOST_ORIGIN）；`clearAudioProfileOverride` 真清掉时写回 HOST_ORIGIN；`hostEqualizer.onAudioSettingsChange` 的 noteChange 条件加 `state.audioProfileOverride !== previous.audioProfileOverride`。
+- **F4** `sceneBridge` createPlaylist NOT_SUPPORTED catch：仅 `!disposed` 时回滚，重读台账，只删 `[key][scene.id]` 的 `'pending'` 项后写回。
+- **F5** `ModCurveNotice`：override 存在且无 modCurve → 同风格提示条（modId→getFoliumModList 名字，取不到用 modId）+「恢复原音效」（复用 `ui.equalizerModCurveRelease`），调 `clearAudioProfileOverride(modId)`。新 key `ui.equalizerModProfile` 三语（en/zh-CN/in）。modCurve 行为不变。
+- **F6** client.mjs：模块级 `lastLinkAudioFx`（登记 onChange 前取当前值），仅 true→false 跳变调 `radio.clearAudioProfile()`。
+- **F7** Grid3D：accountless/guest + sceneCards → `DesktopGrid3DSurface` 与对应登录面板并存（面板在列表下方）。TUI：guest/accountless + 有卡 → 目录 + 底部状态行（原因 + `libraryTui.accountsOpenHint`）；resolving 维持现状。Bravais guest 文案不动。
+- **F8** contract.ts：registerEntries 条目 +`imageUrl?: string`、listPlaylists 返回项 +`coverUrl?: string`；hostSessionBridge 校验 imageUrl（https:// 前缀且 ≤2048，否则忽略该字段不抛错）、listPlaylists 带 coverUrl（有才带）；sessionBridge.ts 参数类型补 imageUrl；radioEntries.ts `RadioEntry.imageUrl?` + `radioEntryCards` 带 `coverUrl`；qqNormalize collection pick 加 `'logo'`；sceneBridge 加 `covers(scenes)`（一次 listPlaylists + 台账按标题比对）与 `onSaved` 钩子；client.mjs `sceneCovers` + `registerRadioCards`/`refreshRadioCovers`，注册与每次 save 后刷新。
+
+## 验证
+
+- `npm run typecheck`；`npm run test:unit`（omni.test、foliumSessionBridge.test、audioEqualizerModCurve.test、omniArchitecture）；`node mods/ai-scene-radio/tests/run.mjs`；`npm run folium:check ai-scene-radio`。
+- 新增测试：`foliumSessionBridge.test.ts` 改 mock getSongDetails + >500 上限；`omni.test.ts` 加差量更新用例（add 失败不 del、只删过期曲）。
+- 收尾按 development-workflow 派独立子代理审查，逐条核实再交付。
