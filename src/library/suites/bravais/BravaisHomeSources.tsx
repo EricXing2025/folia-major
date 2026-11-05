@@ -29,6 +29,7 @@ import type { BravaisHomeChrome } from './useBravaisHomeChrome';
 import BravaisHomeDirectory from './BravaisHomeDirectory';
 import { availableLocalTabLabel, localWallHint, onlineWallHint } from './bravaisEmptyWallHint';
 import { useBravaisHomeAccount } from './useBravaisHomeAccount';
+import { radioEntryCards, radioEntryOfCard, startRadioEntry, useRadioEntries } from '../../../mods/folium/radioEntries';
 
 // src/library/suites/bravais/BravaisHomeSources.tsx
 // bravais 首页三个来源的墙（设计稿 §10.5）：在线（账户歌单 / 电台 / 收藏专辑）、本地（文件夹 / 专辑 / 歌手 / 歌单
@@ -64,7 +65,10 @@ export const BravaisHomeOnline: React.FC<BravaisHomeSourceCommonProps & {
     account: LibraryAccountController;
 }> = ({ tab, online, list, account: accountController, homeActions, onOpenGridView, ...common }) => {
     const { t } = useTranslation();
-    const showList = online.accountView === 'authenticated';
+    const radioEntries = useRadioEntries();
+    const sceneCards = useMemo(() => tab === 'radio' ? radioEntryCards(radioEntries, t('aiSceneRadio.heading')) : [], [tab, radioEntries, t]);
+    const items = useMemo(() => [...sceneCards, ...(online.accountView === 'authenticated' ? list.items : [])], [sceneCards, online.accountView, list.items]);
+    const showList = online.accountView === 'authenticated' || sceneCards.length > 0;
     useLibraryHomeListRegistration({
         enabled: showList,
         getState: (): LibraryHomeListState => ({
@@ -72,7 +76,7 @@ export const BravaisHomeOnline: React.FC<BravaisHomeSourceCommonProps & {
             directoryKey: common.directoryKey,
             hiddenScope: common.hiddenScope,
             sections: [],
-            items: list.items,
+            items,
             isLoading: list.isLoading,
             actions: [],
             batchSelectionType: null,
@@ -98,6 +102,8 @@ export const BravaisHomeOnline: React.FC<BravaisHomeSourceCommonProps & {
     const latest = useRef({ homeActions, providerId: online.providerId, onOpenGridView });
     latest.current = { homeActions, providerId: online.providerId, onOpenGridView };
     const onOpen = useMemo(() => (card: Parameters<LibraryHomeActionsController['openOnlineCard']>[0]) => {
+        const entry = radioEntryOfCard(card);
+        if (entry) { startRadioEntry(entry); return; }
         const { homeActions: actions, providerId, onOpenGridView: open } = latest.current;
         void actions.openOnlineCard(card, providerId, open);
     }, []);
@@ -107,15 +113,15 @@ export const BravaisHomeOnline: React.FC<BravaisHomeSourceCommonProps & {
             layerKey={`home:${tab}`}
             source="online"
             section={tab}
-            items={showList ? list.items : []}
+            items={showList ? items : []}
             isLoading={showList && list.isLoading}
             emptyMessage={emptyMessage}
             wallHint={wallHint}
-            meta={online.providerLabel}
+            meta={sceneCards.length ? `${t('aiSceneRadio.heading')} · ${online.providerLabel}` : online.providerLabel}
             account={account}
-            panelTitle={list.title}
+            panelTitle={sceneCards.length ? t('aiSceneRadio.heading') : list.title}
             onOpen={onOpen}
-            isDirect={isPersonalFmCard}
+            isDirect={card => Boolean(radioEntryOfCard(card)) || isPersonalFmCard(card)}
         />
     );
 };

@@ -90,10 +90,11 @@ export function usePlaybackAudioBridge({
     // here rather than in a selector, which would hand useSyncExternalStore a new object on every read.
     const modCurve = useAudioSettingsStore(state => state.audioEqualizerModCurve);
     const modCurveSuspended = useAudioSettingsStore(state => state.audioEqualizerModCurveSuspended);
+    const audioProfile = useAudioSettingsStore(state => state.audioProfileOverride);
     const equalizerOrigin = useAudioSettingsStore(state => state.audioEqualizerChangeOrigin);
     const heardEqualizerSettings = useMemo(
-        () => resolveHeardAudioEqualizerSettings(audioEqualizerSettings, modCurve, modCurveSuspended),
-        [audioEqualizerSettings, modCurve, modCurveSuspended],
+        () => resolveHeardAudioEqualizerSettings(audioEqualizerSettings, modCurve, modCurveSuspended, audioProfile),
+        [audioEqualizerSettings, modCurve, modCurveSuspended, audioProfile],
     );
     const heardEqualizerSettingsRef = useRef(heardEqualizerSettings);
     const isTransitionAudibleRef = useRef(isTransitionAudible);

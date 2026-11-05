@@ -11,6 +11,50 @@
 /** The Folium version this host implements; mods read it at runtime as `folium.host.folium`. */
 export const FOLIUM_VERSION = Object.freeze({ major: 1, minor: 8 });
 
+/** Session-only clean audio profile; no preset or custom slot is changed. */
+export interface FoliumAudioProfile {
+    /** Ten graphic EQ gains in dB, from 31 Hz to 16 kHz. */
+    bandsDb: number[];
+    /** High-pass cutoff, in Hz. */
+    lowCutHz: number;
+    /** Low-pass cutoff, in Hz. */
+    highCutHz: number;
+    /** Dynamics intensity, percent. */
+    compressorPct: number;
+    /** Stereo width, percent. */
+    widthPct: number;
+    /** Reverb amount, percent. */
+    reverbPct: number;
+}
+
+/** Temporary sound heard on this mod's session; never saved into the listener's settings. Needs `audio.profile`. */
+export interface FoliumAudioFxService {
+    /** Overrides the heard EQ and effect chain; repeated calls replace the previous profile. */
+    applyProfile(profile: FoliumAudioProfile): Promise<void>;
+    /** Restores the listener's sound; also runs when this mod unloads. */
+    clearProfile(): Promise<void>;
+}
+
+/** Active online account's playlists, routed through the host's Omni facade. Needs `library.playlists`. */
+export interface FoliumLibraryService {
+    /** Lists the active provider's user playlists; no playlist mutation occurs. */
+    listPlaylists(): Promise<{ id: string; title: string; trackCount?: number }[]>;
+    /** Creates an empty playlist on the active provider; mods must track its returned ID themselves. */
+    createPlaylist(title: string): Promise<{ id: string; title: string }>;
+    /** Replaces all songs of an owned, editable playlist; unsupported providers reject with `NOT_SUPPORTED`. */
+    replacePlaylistSongs(id: string, tracks: { source: string; id: string }[]): Promise<void>;
+    /** Reads portable song identities from a playlist of the active provider. */
+    getPlaylistTracks(id: string): Promise<{ source: string; id: string; title: string; artist: string }[]>;
+}
+
+/** Native radio-page entries owned by this mod's current activation. Needs `ui.radio`. */
+export interface FoliumRadioService {
+    /** Replaces this mod's radio cards; unloaded mods leave no cards behind. */
+    registerEntries(entries: { id: string; title: string; subtitle?: string }[]): void;
+    /** Called when a registered entry is clicked; use the same scene-start path as other UI. */
+    onStartRequest(callback: (entryId: string) => void): void;
+}
+
 /** `modid:name`, like a Forge ResourceLocation. The mod id part is added by the host. */
 export type FoliumId = string;
 
@@ -2665,6 +2709,12 @@ export interface FoliumClientApi {
     readonly omni: FoliumOmniService;
     /** Folium 1.7: the host's graphic equalizer: read it, switch the user's sound, put a curve of your own in place. */
     readonly equalizer: FoliumEqualizerService;
+    /** Permission-gated, session-scoped bridges. */
+    readonly audioFx: FoliumAudioFxService;
+    /** Active online account's playlist bridge; needs `library.playlists`. */
+    readonly library: FoliumLibraryService;
+    /** Native radio-page cards; needs `ui.radio`. */
+    readonly radio: FoliumRadioService;
     /** Folium 1.8: the host's settings of the lyric display: the global lyric render quality. */
     readonly visualizer: FoliumVisualizerService;
     /**

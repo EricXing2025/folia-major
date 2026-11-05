@@ -39,6 +39,7 @@ import { createFoliumAccountService } from './account';
 import { createFoliumOmniService } from './omni/service';
 import { createFoliumEqualizerService } from './equalizer/service';
 import { createFoliumVisualizerService } from './visualizer/service';
+import { createFoliumSessionBridge } from './sessionBridge';
 
 // src/mods/folium/api.ts
 // Builds the `folium` object one mod's client entry receives. Everything is
@@ -280,6 +281,7 @@ export const createFoliumClientApi = (mod: ModRuntimeInfo, options: FoliumClient
         (name) => optedIn.has(name),
         (name) => `experimental-not-declared:${name} (add it to "experimental" in mod.json)`,
     );
+    const sessionBridge = createFoliumSessionBridge(mod, context, stopped, onRelease);
 
     return Object.freeze({
         modId,
@@ -321,6 +323,7 @@ export const createFoliumClientApi = (mod: ModRuntimeInfo, options: FoliumClient
         // Folium 1.7: the host's equalizer (equalizer/service.ts; the main window installs the source,
         // runtime/equalizer/hostEqualizer.ts).
         equalizer: createFoliumEqualizerService(mod, context, stopped),
+        ...sessionBridge,
         // Folium 1.8: the global lyric render quality, the mode, the builtin modes' tuning and the beat effects
         // (visualizer/service.ts; the main window installs the source, runtime/visualizer/hostVisualizer.ts).
         visualizer: createFoliumVisualizerService(mod, context, stopped),

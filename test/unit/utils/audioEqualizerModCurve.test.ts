@@ -57,6 +57,20 @@ describe('what is heard', () => {
         expect(settings.gains).toEqual([...AUDIO_SOUND_PRESETS.hall.gains]);
         expect(resolveHeardAudioEqualizerSettings(own({ enabled: false }), curveOver(settings), undefined).enabled).toBe(false);
     });
+
+    it('overrides the full heard effect chain without modifying any own sound field', () => {
+        const settings = own();
+        const original = JSON.stringify(settings);
+        const profile = { bandsDb: [0, 1, 0, 1, 3, 3, 2, 1, 1, 0], lowCutHz: 60,
+            highCutHz: 20000, compressorPct: 40, widthPct: 90, reverbPct: 5 };
+        const heard = resolveHeardAudioEqualizerSettings(settings, curveOver(settings), false, profile);
+        expect(heard.gains).toEqual(profile.bandsDb);
+        expect(heard.effects).toMatchObject({ highpass: 60, lowpass: 20000, punch: 0.4, width: 0.9, space: 0.05,
+            drive: 0, crush: 0, wow: 0, noise: 0 });
+        expect(heard.customSlots).toBe(settings.customSlots);
+        expect(JSON.stringify(settings)).toBe(original);
+        expect(resolveHeardAudioEqualizerSettings(settings, null, false, null)).toBe(settings);
+    });
 });
 
 describe('a mod\'s gains', () => {

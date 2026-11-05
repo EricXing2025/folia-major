@@ -720,6 +720,47 @@ export const omni = {
         return withActiveProvider(async provider => provider.library?.getUserPlaylists?.(userId, page.limit, page.offset) ?? emptyPage(page.offset));
     },
 
+    /** Playlist writes for the Folium bridge use the same provider mutation path as the core UI. */
+    async createEmptyPlaylist(title: string): Promise<OmniCollection> {
+        const provider = activeProvider();
+        if (!providerSupports(provider, 'mutations') || !provider.mutations?.createPlaylist
+            || !provider.mutations?.updatePlaylistTracks) return unsupported(provider.id, 'playlist-creation');
+        return provider.mutations.createPlaylist(title);
+    },
+
+    async replaceCollectionTracks(
+        collection: OmniCollection,
+        tracks: UnifiedSong[],
+        expectedUserId: MediaId,
+        active: () => void,
+    ): Promise<void> {
+        const provider = activeProvider();
+        const stillCurrent = () => {
+            active();
+            const account = useOnlineProviderAccountStore.getState().accounts[provider.id];
+            if (activeProviderId() !== provider.id || String(account?.user?.id) !== String(expectedUserId)
+                || account?.status !== 'authenticated') return unsupported(provider.id, 'playlist-replace-account');
+        };
+        stillCurrent();
+        if (provider.id !== collection.providerId || !this.canEditCollectionTracks(collection)
+            || !provider.catalog?.getPlaylistTracks || !provider.mutations?.updatePlaylistTracks
+            || tracks.some(song => {
+                const ref = getPlaybackSourceRef(song);
+                return ref.kind !== 'online' || ref.providerId !== provider.id;
+            })) return unsupported(provider.id, 'playlist-replace');
+        const existing: UnifiedSong[] = [];
+        for (let offset = 0; offset < 10000;) {
+            const page = await this.getCollectionTracks(collection, { offset, limit: 100 });
+            existing.push(...page.items);
+            if (!page.hasMore || page.nextOffset <= offset) break;
+            offset = page.nextOffset;
+        }
+        stillCurrent();
+        if (existing.length) await this.updateCollectionTracks(collection, 'del', existing);
+        stillCurrent();
+        if (tracks.length) await this.updateCollectionTracks(collection, 'add', tracks);
+    },
+
     // Reads who is signed in to a provider, their playlists and their liked songs from the
     // platform, and settles them in the account store (account/accountRead.ts): at app start,
     // after a sign-in, at a platform switch and for the sync button. A read asked for while one

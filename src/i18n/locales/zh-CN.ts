@@ -1,6 +1,7 @@
 
 
 export default {
+  "aiSceneRadio": { "heading": "AI 场景" },
   "scratchpad": {
     "title": "速记簿",
     "count_one": "{{count}} 首",

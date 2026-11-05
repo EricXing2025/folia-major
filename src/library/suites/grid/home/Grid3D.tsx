@@ -33,6 +33,7 @@ import { useLibraryHomeDirectory } from '../../../core/home/useLibraryHomeDirect
 import { useLibraryHomeListRegistration, useLibraryHomeTabsRegistration } from '../../../core/home/useLibraryHomeSurfaceRegistration';
 import { cycleIndex } from '../../../core/home/homeSources';
 import { useUpdateIndicator } from '../../../../hooks/useUpdateIndicator';
+import { radioEntryCards, radioEntryOfCard, startRadioEntry, useRadioEntries } from '../../../../mods/folium/radioEntries';
 
 // src/library/suites/grid/home/Grid3D.tsx
 // Glassmorphic interactive desktop home view replacing the legacy 3D carousel.
@@ -164,6 +165,15 @@ export const Grid3D: React.FC<Grid3DProps> = (props) => {
     const activeAccountView = online.accountView;
     const activeProviderNeedsRelogin = online.needsRelogin;
     const onlineList = useLibraryHomeOnline(homeResources, homeSources);
+    const sceneEntries = useRadioEntries();
+    const sceneCards = React.useMemo(
+        () => homeViewTab === 'radio' ? radioEntryCards(sceneEntries, t('aiSceneRadio.heading')) : [],
+        [homeViewTab, sceneEntries, t],
+    );
+    const onlineItems = React.useMemo(
+        () => [...sceneCards, ...(activeAccountView === 'authenticated' ? onlineList.items : [])],
+        [sceneCards, activeAccountView, onlineList.items],
+    );
     const homeActions = homeResources.actions;
     const { snapshot: homeActionState, scanPercent: scanProgressPercent } = useLibraryHomeActions(homeActions);
     const scanProgress = homeActionState.scan;
@@ -176,9 +186,9 @@ export const Grid3D: React.FC<Grid3DProps> = (props) => {
     // 在线列表只在账户已就绪时显示（无账户 / 解析中 / 未登录各有面板）。探索页签没有卡片列表：它是平台自己的推荐页。
     const showOnlineList = isOnlineTab
         && homeViewTab !== 'explore'
-        && activeAccountView !== 'accountless'
-        && activeAccountView !== 'resolving'
-        && activeAccountView !== 'guest';
+        && (sceneCards.length > 0 || (activeAccountView !== 'accountless'
+            && activeAccountView !== 'resolving'
+            && activeAccountView !== 'guest'));
     // On the explore tab the wall (队列拼贴) shows the page's entries, not the play queue: it is
     // offered there once the page has an entry to show, with or without a song on the player.
     const opensExploreWall = homeViewTab === 'explore' && online.canUseExplore;
@@ -203,6 +213,8 @@ export const Grid3D: React.FC<Grid3DProps> = (props) => {
     // Delegate GridView opening to the app-level host so Grid3D remains only the home surface.
     // If Personal FM is clicked, it plays Personal FM directly instead of opening GridView.
     const handleSelectCollectionCard = (card: LibraryHomeCard) => {
+        const entry = radioEntryOfCard(card);
+        if (entry) { startRadioEntry(entry); return; }
         void homeActions.openOnlineCard(card, activeProviderId, collection => onOpenGridView?.(collection));
     };
 
@@ -224,7 +236,7 @@ export const Grid3D: React.FC<Grid3DProps> = (props) => {
             directoryKey,
             hiddenScope,
             sections: [],
-            items: onlineList.items,
+            items: onlineItems,
             isLoading: onlineList.isLoading,
             actions: [],
             batchSelectionType: null,
@@ -484,17 +496,17 @@ export const Grid3D: React.FC<Grid3DProps> = (props) => {
 
             {/* Desktop Canvas Surface */}
             <div className="flex-1 min-h-0 flex flex-col items-center justify-center relative">
-                {isOnlineTab && activeAccountView === 'accountless' ? (
+                {isOnlineTab && activeAccountView === 'accountless' && !sceneCards.length ? (
                     <OnlineProviderAccountlessPanel
                         providerLabel={activeProviderLabel}
                         isDaylight={isDaylight}
                         onSearch={() => searchInputRef.current?.focus()}
                     />
-                ) : isOnlineTab && activeAccountView === 'resolving' ? (
+                ) : isOnlineTab && activeAccountView === 'resolving' && !sceneCards.length ? (
                     <div className="flex flex-1 w-full items-center justify-center" aria-busy="true">
                         <Loader2 className="animate-spin opacity-30" size={28} />
                     </div>
-                ) : isOnlineTab && activeAccountView === 'guest' ? (
+                ) : isOnlineTab && activeAccountView === 'guest' && !sceneCards.length ? (
                     // One button: it opens the sign-in window, where the platform is chosen.
                     <HomeLoginPanel account={account} />
                 ) : homeViewTab === 'explore' ? (
@@ -512,9 +524,9 @@ export const Grid3D: React.FC<Grid3DProps> = (props) => {
                 ) : showOnlineList ? (
                     <DesktopGrid3DSurface
                         focusMemoryScope={JSON.stringify(['online', activeProviderId, activeUser?.id ?? null, homeViewTab])}
-                        title={onlineList.title}
+                        title={sceneCards.length ? t('aiSceneRadio.heading') : onlineList.title}
                         mapButtonLabel={t('home.allAlbums')}
-                        items={onlineList.items}
+                        items={onlineItems}
                         focusedIndex={focusedIndex}
                         onFocusedIndexChange={setFocusedIndex}
                         onSelect={item => handleSelectCollectionCard(item as LibraryHomeCard)}

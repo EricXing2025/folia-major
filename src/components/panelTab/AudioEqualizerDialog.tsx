@@ -39,19 +39,20 @@ const AudioEqualizerDialog: React.FC<AudioEqualizerDialogProps> = ({ isDaylight 
     const ownSettings = useAudioSettingsStore(state => state.audioEqualizerSettings);
     const modCurve = useAudioSettingsStore(state => state.audioEqualizerModCurve);
     const modCurveSuspended = useAudioSettingsStore(state => state.audioEqualizerModCurveSuspended);
+    const audioProfile = useAudioSettingsStore(state => state.audioProfileOverride);
     const isOpen = useAudioSettingsStore(state => state.isAudioEqualizerOpen);
     const close = useAudioSettingsStore(state => state.closeAudioEqualizer);
     const commitSettings = useAudioSettingsStore(state => state.handleSetAudioEqualizerSettings);
     const commitEnabled = useAudioSettingsStore(state => state.handleSetAudioEqualizerEnabled);
     // What is heard: the listener's own settings, with a mod's curve over the gains while it plays (Folium 1.7).
     const settings = useMemo(
-        () => resolveHeardAudioEqualizerSettings(ownSettings, modCurve, modCurveSuspended),
-        [ownSettings, modCurve, modCurveSuspended],
+        () => resolveHeardAudioEqualizerSettings(ownSettings, modCurve, modCurveSuspended, audioProfile),
+        [ownSettings, modCurve, modCurveSuspended, audioProfile],
     );
     const curveHeard = Boolean(modCurve) && !modCurveSuspended;
     // On the HiFi route mpv plays the song and none of this is heard: the window only shows the settings, kept for the web engine.
     const isHifiRoute = useIsHifiRoute();
-    const readOnly = curveHeard || isHifiRoute;
+    const readOnly = curveHeard || Boolean(audioProfile) || isHifiRoute;
     const [draft, setDraft] = useState<AudioEqualizerSettings>(settings);
     const draftRef = useRef(draft);
     const mountedRef = useRef(false);
@@ -155,6 +156,7 @@ const AudioEqualizerDialog: React.FC<AudioEqualizerDialogProps> = ({ isDaylight 
 
     // The switch stops the processing and keeps every value.
     const setEnabled = (enabled: boolean) => {
+        if (audioProfile) return;
         updateDraft({ ...draftRef.current, enabled });
         // Only the switch: a mod's curve stays, and nothing else in the draft is written by it.
         commitEnabled(enabled);
@@ -193,7 +195,7 @@ const AudioEqualizerDialog: React.FC<AudioEqualizerDialogProps> = ({ isDaylight 
                     <span className="whitespace-nowrap text-xs text-[color:var(--st-t2)] max-sm:sr-only">
                         {t(draft.enabled ? 'ui.equalizerEnabled' : 'ui.equalizerDisabled')}
                     </span>
-                    <Toggle checked={draft.enabled} onChange={setEnabled} disabled={isHifiRoute} />
+                    <Toggle checked={draft.enabled} onChange={setEnabled} disabled={isHifiRoute || Boolean(audioProfile)} />
                 </label>
             )}
         >
@@ -201,7 +203,7 @@ const AudioEqualizerDialog: React.FC<AudioEqualizerDialogProps> = ({ isDaylight 
             <div data-ponder="audio-equalizer" className="flex min-h-full flex-col">
                 <HifiBypassNotice />
                 <ModCurveNotice />
-                {isHifiRoute ? (
+                {isHifiRoute || audioProfile ? (
                     // Out of reach on HiFi as well: a preset would write a sound that is not heard.
                     <div inert className="opacity-40">{presetChips}</div>
                 ) : presetChips}

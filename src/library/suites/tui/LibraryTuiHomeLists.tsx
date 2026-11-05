@@ -25,6 +25,7 @@ import { useLibraryHomeListRegistration } from '../../core/home/useLibraryHomeSu
 import LibraryTuiDirectory from './LibraryTuiDirectory';
 import LibraryTuiAccountList from './LibraryTuiAccountList';
 import type { LibraryTuiPromptRequest } from './LibraryTuiPrompt';
+import { radioEntryCards, radioEntryOfCard, startRadioEntry, useRadioEntries } from '../../../mods/folium/radioEntries';
 
 // src/library/suites/tui/LibraryTuiHomeLists.tsx
 // TUI 首页三个来源的列表：在线（账户歌单 / 电台 / 收藏专辑）、本地（四个 section，文件夹是目录树、带批量）、
@@ -89,9 +90,13 @@ export const LibraryTuiOnlineList: React.FC<LibraryTuiListCommonProps & {
     onCloseAccounts: () => void;
 }> = ({ tab, online, list, account, accountsOpen, onCloseAccounts, homeActions, onOpenGridView, directoryKey, hiddenScope, ...common }) => {
     const { t } = useTranslation();
+    const radioEntries = useRadioEntries();
+    const items = tab === 'radio' ? [...radioEntryCards(radioEntries, t('aiSceneRadio.heading')),
+        ...(online.accountView === 'authenticated' ? list.items : [])] : list.items;
     const isGuest = online.accountView === 'guest';
-    const showAccounts = isGuest || accountsOpen;
-    const showList = !showAccounts && online.accountView !== 'accountless' && online.accountView !== 'resolving';
+    const showAccounts = (isGuest && !(tab === 'radio' && radioEntries.length)) || accountsOpen;
+    const showList = !showAccounts && (radioEntries.length > 0 && tab === 'radio'
+        || (online.accountView !== 'accountless' && online.accountView !== 'resolving'));
 
     useLibraryHomeListRegistration({
         enabled: showList,
@@ -100,7 +105,7 @@ export const LibraryTuiOnlineList: React.FC<LibraryTuiListCommonProps & {
             directoryKey,
             hiddenScope,
             sections: [],
-            items: list.items,
+            items,
             isLoading: list.isLoading,
             actions: [],
             batchSelectionType: null,
@@ -130,7 +135,7 @@ export const LibraryTuiOnlineList: React.FC<LibraryTuiListCommonProps & {
             />
         );
     }
-    if (online.accountView === 'accountless') {
+    if (online.accountView === 'accountless' && !(tab === 'radio' && radioEntries.length)) {
         return (
             <StatusText status="accountless">
                 <span>{t('libraryTui.accountless', { provider: online.providerLabel })}</span>
@@ -138,22 +143,32 @@ export const LibraryTuiOnlineList: React.FC<LibraryTuiListCommonProps & {
             </StatusText>
         );
     }
-    if (online.accountView === 'resolving') {
+    if (online.accountView === 'resolving' && !(tab === 'radio' && radioEntries.length)) {
         return <StatusText status="resolving"><span className="opacity-50">{t('home.loadingLibrary')}</span></StatusText>;
     }
 
-    return (
+    const directory = (
         <LibraryTuiDirectory
             {...common}
             directoryKey={directoryKey}
             hiddenScope={hiddenScope}
-            items={list.items}
+            items={items}
             isLoading={list.isLoading}
             emptyMessage={list.emptyMessage}
             // 私人 FM 直接播放，其余交给宿主打开集合（suite 是 TUI，所以打开的是 TUI 的集合视图）。
-            onOpen={card => void homeActions.openOnlineCard(card, online.providerId, onOpenGridView)}
+            onOpen={card => {
+                const entry = radioEntryOfCard(card);
+                if (entry) { startRadioEntry(entry); return; }
+                void homeActions.openOnlineCard(card, online.providerId, onOpenGridView);
+            }}
         />
     );
+    return tab === 'radio' && radioEntries.length > 0 ? (
+        <div className="flex min-h-0 flex-1 flex-col">
+            <div className="px-4 py-2 text-xs font-semibold tracking-wide opacity-70">{t('aiSceneRadio.heading')}</div>
+            {directory}
+        </div>
+    ) : directory;
 };
 
 export const LibraryTuiLocalList: React.FC<LibraryTuiListCommonProps & {

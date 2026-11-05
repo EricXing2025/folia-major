@@ -21,7 +21,7 @@
 - **数据结构**：[FoliumLyricRuby](#foliumlyricruby) · [FoliumLyricSyllable](#foliumlyricsyllable) · [FoliumLyricAlternateText](#foliumlyricalternatetext) · [FoliumWord](#foliumword) · [FoliumBackgroundVocal](#foliumbackgroundvocal) · [FoliumLineTimingClass](#foliumlinetimingclass) · [FoliumLineTransitionMode](#foliumlinetransitionmode) · [FoliumWordRevealMode](#foliumwordrevealmode) · [FoliumLineRenderHints](#foliumlinerenderhints) · [FoliumLine](#foliumline) · [FoliumTheme](#foliumtheme) · [FoliumSong](#foliumsong) · [FoliumPlaybackState](#foliumplaybackstate) · [FoliumLoopMode](#foliumloopmode) · [FoliumQueueItem](#foliumqueueitem) · [FoliumQueueSnapshot](#foliumqueuesnapshot) · [FoliumQueueChange](#foliumqueuechange) · [FoliumQueueReplaceRefusal](#foliumqueuereplacerefusal) · [FoliumQueueReplaced](#foliumqueuereplaced) · [FoliumQueueReplaceRefused](#foliumqueuereplacerefused) · [FoliumQueueReplaceResult](#foliumqueuereplaceresult) · [FoliumPlaybackSnapshot](#foliumplaybacksnapshot) · [FoliumLyricFormat](#foliumlyricformat) · [FoliumLyricsTrack](#foliumlyricstrack) · [FoliumLyricsResult](#foliumlyricsresult) · [FoliumLegacyLyricsResult](#foliumlegacylyricsresult) · [FoliumParsedLyrics](#foliumparsedlyrics)
 - **实验接口**：[FoliumLayoutRect](#foliumlayoutrect) · [FoliumPlayerObstacle](#foliumplayerobstacle) · [FoliumPlayerLayout](#foliumplayerlayout) · [FoliumRemoteActionDef](#foliumremoteactiondef) · [FoliumRemoteActionsContext](#foliumremoteactionscontext) · [FoliumRemoteActionsDef](#foliumremoteactionsdef) · [FoliumRemoteActionsHandle](#foliumremoteactionshandle) · [FoliumProviderSong](#foliumprovidersong) · [FoliumAudioQuality](#foliumaudioquality) · [FoliumOmniProviderDef](#foliumomniproviderdef) · [FoliumJsonValue](#foliumjsonvalue) · [FoliumPlatformBackend](#foliumplatformbackend) · [FoliumPlatformDescription](#foliumplatformdescription) · [FoliumPlatformResponse](#foliumplatformresponse) · [FoliumPlatformErrorCode](#foliumplatformerrorcode) · [FoliumPlatformService](#foliumplatformservice)
 - **main 入口（Node）**：[FoliumMainModule](#foliummainmodule) · [FoliumMainApi](#foliummainapi) · [FoliumManifest](#foliummanifest) · [FoliumMainStorage](#foliummainstorage) · [FoliumModPaths](#foliummodpaths) · [FoliumMainPaths](#foliummainpaths) · [FoliumMainRuntime](#foliummainruntime) · [FoliumMainRpc](#foliummainrpc) · [FoliumMainRender](#foliummainrender) · [FoliumExportSpec](#foliumexportspec) · [FoliumExportResult](#foliumexportresult)
-- **基础类型**：[FOLIUM_VERSION](#folium_version) · [FoliumId](#foliumid) · [FoliumLabel](#foliumlabel) · [FoliumDisposer](#foliumdisposer)
+- **基础类型**：[FOLIUM_VERSION](#folium_version) · [FoliumAudioProfile](#foliumaudioprofile) · [FoliumAudioFxService](#foliumaudiofxservice) · [FoliumLibraryService](#foliumlibraryservice) · [FoliumRadioService](#foliumradioservice) · [FoliumId](#foliumid) · [FoliumLabel](#foliumlabel) · [FoliumDisposer](#foliumdisposer)
 - **[仍可用的旧名字](#仍可用的旧名字)**
 
 ## 客户端入口
@@ -39,6 +39,9 @@
 | `playback.control` | `folium.playback.play`、`folium.playback.pause`、`folium.playback.toggle`、`folium.playback.seek`、`folium.playback.seekToLyricTime`、`folium.playback.next`、`folium.playback.previous`、`folium.playback.playSong`、`folium.playback.enqueue`、`folium.playback.shuffleQueue`、`folium.playback.toggleLike`、`folium.playback.setVolume`、`folium.playback.setMuted`、`folium.playback.setLoopMode`、`folium.playback.playQueueItem` |
 | `playback.queue` | `folium.playback.replaceQueue` |
 | `equalizer.control` | `folium.equalizer.setMode`、`folium.equalizer.applyCurve`、`folium.equalizer.releaseCurve` |
+| `audio.profile` | `folium.audioFx.applyProfile`、`folium.audioFx.clearProfile` |
+| `library.playlists` | `folium.library.listPlaylists`、`folium.library.createPlaylist`、`folium.library.replacePlaylistSongs`、`folium.library.getPlaylistTracks` |
+| `ui.radio` | `folium.radio.registerEntries`、`folium.radio.onStartRequest` |
 | `visualizer.renderQuality` | `folium.visualizer.setRenderQuality` |
 | `visualizer.mode` | `folium.visualizer.setMode` |
 | `visualizer.tuning` | `folium.visualizer.setTuning` |
@@ -158,12 +161,15 @@ The object a client entry's `activate(folium)` receives.
 | `readonly account` | `FoliumAccountService` | Folium 1.7: who is signed in to the online sources. |
 | `readonly omni` | `FoliumOmniService` | Folium 1.7: the host's online music sources, read only: search, songs by id, lyrics, albums, artists. |
 | `readonly equalizer` | `FoliumEqualizerService` | Folium 1.7: the host's graphic equalizer: read it, switch the user's sound, put a curve of your own in place. |
+| `readonly audioFx` | `FoliumAudioFxService` | Permission-gated, session-scoped bridges. |
+| `readonly library` | `FoliumLibraryService` | Active online account's playlist bridge; needs `library.playlists`. |
+| `readonly radio` | `FoliumRadioService` | Native radio-page cards; needs `ui.radio`. |
 | `readonly visualizer` | `FoliumVisualizerService` | Folium 1.8: the host's settings of the lyric display: the global lyric render quality. |
 | `every()` | `(ms: number, listener: () => void): FoliumDisposer` | Calls `listener` every `ms` milliseconds (at least 16) until the mod stops; the host stops it then. |
 | `onDispose()` | `(disposer: FoliumDisposer): void` | Runs `disposer` when the mod stops, after the disposer `activate` returned; at once when the mod has already stopped. |
 | `readonly experimental` | `Readonly<Record<string, unknown>>` | Unfrozen surfaces; each requires the matching manifest `experimental` opt-in. |
 
-相关：[FoliumHostInfo](#foliumhostinfo) · [FoliumContextKind](#foliumcontextkind) · [FoliumLogger](#foliumlogger) · [FoliumRegistries](#foliumregistries) · [FoliumEvents](#foliumevents) · [FoliumPlaybackService](#foliumplaybackservice) · [FoliumUiService](#foliumuiservice) · [FoliumNetService](#foliumnetservice) · [FoliumStorage](#foliumstorage) · [FoliumSecretAccess](#foliumsecretaccess) · [FoliumRpc](#foliumrpc) · [FoliumLyricsService](#foliumlyricsservice) · [FoliumThemeHelpers](#foliumthemehelpers) · [FoliumAccountService](#foliumaccountservice) · [FoliumOmniService](#foliumomniservice) · [FoliumEqualizerService](#foliumequalizerservice) · [FoliumVisualizerService](#foliumvisualizerservice) · [FoliumDisposer](#foliumdisposer)
+相关：[FoliumHostInfo](#foliumhostinfo) · [FoliumContextKind](#foliumcontextkind) · [FoliumLogger](#foliumlogger) · [FoliumRegistries](#foliumregistries) · [FoliumEvents](#foliumevents) · [FoliumPlaybackService](#foliumplaybackservice) · [FoliumUiService](#foliumuiservice) · [FoliumNetService](#foliumnetservice) · [FoliumStorage](#foliumstorage) · [FoliumSecretAccess](#foliumsecretaccess) · [FoliumRpc](#foliumrpc) · [FoliumLyricsService](#foliumlyricsservice) · [FoliumThemeHelpers](#foliumthemehelpers) · [FoliumAccountService](#foliumaccountservice) · [FoliumOmniService](#foliumomniservice) · [FoliumEqualizerService](#foliumequalizerservice) · [FoliumAudioFxService](#foliumaudiofxservice) · [FoliumLibraryService](#foliumlibraryservice) · [FoliumRadioService](#foliumradioservice) · [FoliumVisualizerService](#foliumvisualizerservice) · [FoliumDisposer](#foliumdisposer)
 
 ### FoliumClientModule
 
@@ -2564,6 +2570,50 @@ The Folium version this host implements; mods read it at runtime as `folium.host
 ```ts
 const FOLIUM_VERSION = Object.freeze({ major: 1, minor: 8 })
 ```
+
+### FoliumAudioProfile
+
+Session-only clean audio profile; no preset or custom slot is changed.
+
+| 成员 | 类型 | 说明 |
+| --- | --- | --- |
+| `bandsDb` | `number[]` | Ten graphic EQ gains in dB, from 31 Hz to 16 kHz. |
+| `lowCutHz` | `number` | High-pass cutoff, in Hz. |
+| `highCutHz` | `number` | Low-pass cutoff, in Hz. |
+| `compressorPct` | `number` | Dynamics intensity, percent. |
+| `widthPct` | `number` | Stereo width, percent. |
+| `reverbPct` | `number` | Reverb amount, percent. |
+
+### FoliumAudioFxService
+
+Temporary sound heard on this mod's session; never saved into the listener's settings. Needs `audio.profile`.
+
+| 成员 | 类型 | 说明 |
+| --- | --- | --- |
+| `applyProfile()` | `(profile: FoliumAudioProfile): Promise<void>` | Overrides the heard EQ and effect chain; repeated calls replace the previous profile. |
+| `clearProfile()` | `(): Promise<void>` | Restores the listener's sound; also runs when this mod unloads. |
+
+相关：[FoliumAudioProfile](#foliumaudioprofile)
+
+### FoliumLibraryService
+
+Active online account's playlists, routed through the host's Omni facade. Needs `library.playlists`.
+
+| 成员 | 类型 | 说明 |
+| --- | --- | --- |
+| `listPlaylists()` | `(): Promise<{ id: string; title: string; trackCount?: number }[]>` | Lists the active provider's user playlists; no playlist mutation occurs. |
+| `createPlaylist()` | `(title: string): Promise<{ id: string; title: string }>` | Creates an empty playlist on the active provider; mods must track its returned ID themselves. |
+| `replacePlaylistSongs()` | `(id: string, tracks: { source: string; id: string }[]): Promise<void>` | Replaces all songs of an owned, editable playlist; unsupported providers reject with `NOT_SUPPORTED`. |
+| `getPlaylistTracks()` | `(id: string): Promise<{ source: string; id: string; title: string; artist: string }[]>` | Reads portable song identities from a playlist of the active provider. |
+
+### FoliumRadioService
+
+Native radio-page entries owned by this mod's current activation. Needs `ui.radio`.
+
+| 成员 | 类型 | 说明 |
+| --- | --- | --- |
+| `registerEntries()` | `(entries: { id: string; title: string; subtitle?: string }[]): void` | Replaces this mod's radio cards; unloaded mods leave no cards behind. |
+| `onStartRequest()` | `(callback: (entryId: string) => void): void` | Called when a registered entry is clicked; use the same scene-start path as other UI. |
 
 ### FoliumId
 

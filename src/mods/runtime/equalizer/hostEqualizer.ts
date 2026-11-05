@@ -81,21 +81,23 @@ export const buildFoliumEqualizerState = (): FoliumEqualizerState => {
     const audio = useAudioSettingsStore.getState();
     const settings = audio.audioEqualizerSettings;
     const curve = audio.audioEqualizerModCurve;
-    const heard = resolveHeardAudioEqualizerSettings(settings, curve, audio.audioEqualizerModCurveSuspended);
-    const mode: FoliumEqualizerMode = curve && !audio.audioEqualizerModCurveSuspended
+    const heard = resolveHeardAudioEqualizerSettings(settings, curve, audio.audioEqualizerModCurveSuspended, audio.audioProfileOverride);
+    const mode: FoliumEqualizerMode = audio.audioProfileOverride
+        ? Object.freeze({ kind: 'mod', modId: audio.audioProfileOverride.modId })
+        : curve && !audio.audioEqualizerModCurveSuspended
         ? Object.freeze({ kind: 'mod', modId: curve.modId })
         : isAudioEqualizerCustomSlotId(settings.preset)
             ? Object.freeze({ kind: 'custom', id: settings.preset })
             : Object.freeze({ kind: 'preset', id: settings.preset });
     return Object.freeze({
-        enabled: settings.enabled,
+        enabled: heard.enabled,
         mode,
         gains: Object.freeze([...heard.gains]),
         bands: FOLIUM_EQUALIZER_BANDS,
         minGain: AUDIO_EQUALIZER_MIN_GAIN_DB,
         maxGain: AUDIO_EQUALIZER_MAX_GAIN_DB,
         hostPlaysAudio: hostPlaysAudioNow(),
-        writable: !audio.isAudioEqualizerOpen,
+        writable: !audio.isAudioEqualizerOpen && !audio.audioProfileOverride,
     });
 };
 
@@ -131,7 +133,10 @@ const announceTakeover = (
 /** What `folium.equalizer` goes through in the main window: the audio settings store, through its actions. */
 export const FOLIUM_HOST_EQUALIZER_SOURCE: FoliumEqualizerSource = Object.freeze({
     getState: buildFoliumEqualizerState,
-    isWritable: () => !useAudioSettingsStore.getState().isAudioEqualizerOpen,
+    isWritable: () => {
+        const audio = useAudioSettingsStore.getState();
+        return !audio.isAudioEqualizerOpen && !audio.audioProfileOverride;
+    },
     hasMode: (mode: { kind: string; id: string }) => modeIdOf(mode) !== null,
     wouldChange: (mod: ModRuntimeInfo, write: FoliumEqualizerWrite) => {
         const audio = useAudioSettingsStore.getState();

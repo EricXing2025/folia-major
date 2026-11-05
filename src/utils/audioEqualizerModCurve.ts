@@ -81,7 +81,23 @@ export const resolveHeardAudioEqualizerSettings = (
     settings: AudioEqualizerSettings,
     curve: AudioEqualizerModCurve | null | undefined,
     suspended: boolean | undefined,
+    profile?: { bandsDb: readonly number[]; lowCutHz: number; highCutHz: number; compressorPct: number; widthPct: number; reverbPct: number } | null,
 ): AudioEqualizerSettings => {
+    if (profile) {
+        return {
+            ...settings,
+            enabled: true,
+            gains: [...profile.bandsDb],
+            effects: {
+                highpass: profile.lowCutHz,
+                lowpass: profile.highCutHz,
+                punch: profile.compressorPct / 100,
+                width: profile.widthPct / 100,
+                space: profile.reverbPct / 100,
+                drive: 0, crush: 0, wow: 0, noise: 0,
+            },
+        };
+    }
     if (!curve || suspended) {
         return settings;
     }

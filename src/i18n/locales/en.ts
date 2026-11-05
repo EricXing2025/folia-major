@@ -1,6 +1,7 @@
 
 
 export default {
+  "aiSceneRadio": { "heading": "AI scenes" },
   "scratchpad": {
     "title": "Scratchpad",
     "count_one": "{{count}} song",

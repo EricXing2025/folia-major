@@ -1,6 +1,7 @@
 
 
 export default {
+  "aiSceneRadio": { "heading": "Adegan AI" },
   "scratchpad": {
     "title": "Buku catatan",
     "count_one": "{{count}} lagu",

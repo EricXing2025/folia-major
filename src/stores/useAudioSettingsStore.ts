@@ -219,6 +219,10 @@ export type AudioSettingsState = {
      * Folium host layer sets it from the mod list (runtime/equalizer/hostEqualizer.ts). False whenever there is no curve.
      */
     audioEqualizerModCurveSuspended: boolean;
+    /** Session-only profile; never serialized to the listener's sound or custom slots. */
+    audioProfileOverride: { modId: string; bandsDb: number[]; lowCutHz: number; highCutHz: number; compressorPct: number; widthPct: number; reverbPct: number } | null;
+    setAudioProfileOverride: (profile: AudioSettingsState['audioProfileOverride']) => void;
+    clearAudioProfileOverride: (modId: string) => void;
     /** Who made the last equalizer change; not persisted. Read by the Folium host layer and the audio bridge. */
     audioEqualizerChangeOrigin: AudioEqualizerChangeOrigin;
     isAudioEqualizerOpen: boolean;
@@ -326,6 +330,11 @@ export const useAudioSettingsStore = create<AudioSettingsState>((set, get) => ({
     audioEqualizerSettings: initialAudioEqualizerSettings,
     audioEqualizerModCurve: readStoredAudioEqualizerModCurve(initialAudioEqualizerSettings),
     audioEqualizerModCurveSuspended: false,
+    audioProfileOverride: null,
+    setAudioProfileOverride: (profile) => set({ audioProfileOverride: profile }),
+    clearAudioProfileOverride: (modId) => {
+        if (get().audioProfileOverride?.modId === modId) set({ audioProfileOverride: null });
+    },
     audioEqualizerChangeOrigin: HOST_ORIGIN,
     isAudioEqualizerOpen: false,
     volume: readStoredVolume(),
