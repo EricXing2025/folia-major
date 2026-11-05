@@ -5,8 +5,6 @@
 import assert from 'node:assert/strict';
 import {
     buildPrompt,
-    buildExclusionIndex,
-    isExcluded,
     dedupeCandidates,
     parseCandidates,
     pickMatch,
@@ -16,10 +14,11 @@ import {
     shouldContinue,
     createRadio,
     STORAGE_KEY,
+    DIAG_STORAGE_KEY,
     DEFAULT_GATEWAY,
     DEFAULT_MODEL,
 } from '../radio.mjs';
-import { PROFILE, SCENES, EXCLUSIONS } from '../configData.mjs';
+import { SCENES } from '../configData.mjs';
 import activate from '../client.mjs';
 import { createScenePlaylistSync, PLAYLIST_IDS_KEY, playlistTitle, SCENE_PROFILES } from '../sceneBridge.mjs';
 
@@ -201,23 +200,6 @@ test('dedupeCandidates: 大小写/空白不敏感去重', () => {
     assert.equal(out.length, 2);
 });
 
-test('排除簇：confirmed 命中', () => {
-    const index = buildExclusionIndex(EXCLUSIONS);
-    assert.equal(isExcluded(song('x', '活埋 (2026女生新版)', '竹子ZZ'), index), true);
-});
-
-test('排除簇：suspected 同样命中', () => {
-    const index = buildExclusionIndex(EXCLUSIONS);
-    assert.equal(isExcluded(song('x', '雨过后的风景', '羊羊'), index), true);
-});
-
-test('排除簇：blockedArtist 命中、正常歌放行', () => {
-    const index = buildExclusionIndex(EXCLUSIONS);
-    assert.equal(isExcluded(song('x', '任意歌名', '任然'), index), true);
-    assert.equal(isExcluded(song('x', '红豆', '王菲'), index), false);
-    assert.equal(isExcluded(song('x', '普通歌', '刘至佳'), index), false); // 单人不在簇内
-});
-
 test('buildPrompt: 画像 + 场景 + 避重 + 负反馈', () => {
     const scene = SCENES.find((s) => s.id === 'work-morning');
     const history = [
@@ -232,7 +214,8 @@ test('buildPrompt: 画像 + 场景 + 避重 + 负反馈', () => {
     assert.ok(user.includes('王菲') && user.includes('林忆莲'));
     assert.ok(user.includes('讨厌歌'));   // 负反馈入提示词
     assert.ok(user.includes('听过歌'));   // 已播避重入提示词
-    assert.ok(user.includes('任然'));     // 排除歌手进提示词
+    assert.ok(!user.includes('永不出现')); // F9：排除名单不进提示词
+    assert.ok(!user.includes('任然'));    // F9：名单内歌手不再被点名屏蔽
     assert.ok(system.length > 0);
 });
 
@@ -298,13 +281,14 @@ test('全链：LLM→核验→replaceQueue→playQueueItem→批次入库且不�
         红豆: [song(1, '红豆', '王菲')],
         阴天: [song(2, '阴天', '莫文蔚')],
         遇见: [song(3, '遇见', '孙燕姿')],
+        活埋: [song(4, '活埋 (2026女生新版)', '竹子ZZ')],
     });
     const { deps, record } = makeDeps({
         fetch: async () => llmResponse([
             { title: '红豆', artist: '王菲' },
             { title: '阴天', artist: '莫文蔚' },
             { title: '遇见', artist: '孙燕姿' },
-            { title: '活埋 (2026女生新版)', artist: '竹子ZZ' }, // 排除簇：搜到也会被过滤
+            { title: '活埋 (2026女生新版)', artist: '竹子ZZ' }, // F9：名单内歌手照常可选
             { title: '不存在的歌', artist: '无名氏' },
         ]),
         omni, playback, storage,
@@ -313,10 +297,10 @@ test('全链：LLM→核验→replaceQueue→playQueueItem→批次入库且不�
     const ok = await radio.runScene('work-morning');
     assert.equal(ok, 'ok');
     assert.equal(playback._calls.replace.length, 1);
-    assert.deepEqual(playback._calls.replace[0].titles, ['红豆', '阴天', '遇见']);
+    assert.deepEqual(playback._calls.replace[0].titles, ['红豆', '阴天', '遇见', '活埋 (2026女生新版)']);
     assert.equal(playback._calls.playItem[0], 0);
     const saved = storage._map.get(STORAGE_KEY);
-    assert.ok(saved.batches['work-morning'].length === 3);
+    assert.ok(saved.batches['work-morning'].length === 4);
     assert.equal(JSON.stringify(saved).includes('"ref"'), false, 'storage 不得含 ref');
     // LLM 请求带 UA 与 Authorization
     assert.equal(record.fetches.length, 1);
@@ -566,17 +550,6 @@ test('全失败 → activeSceneId 回滚，不残留未开播场景', async () =
     const result = await radio.runScene('work-morning');
     assert.equal(result, 'fail');
     assert.equal(radio._state.activeSceneId, null);
-});
-
-test('排除簇：blockedArtist 组合署名分隔变体命中', () => {
-    const index = buildExclusionIndex({
-        blockedArtists: ['任夏 / 老板'],
-        blockedSongs: [],
-    });
-    assert.equal(isExcluded(song(1, '某歌', '任夏、老板'), index), true);
-    assert.equal(isExcluded(song(2, '某歌', '任夏，老板'), index), true);
-    assert.equal(isExcluded(song(3, '某歌', '任夏'), index), false); // 组合条目不封成员个人
-    assert.equal(isExcluded(song(4, '某歌', '王宇宙'), index), false);
 });
 
 test('续单：>500 长队列分页读全，旧歌不丢尾', async () => {
@@ -970,6 +943,8 @@ test('失败链：已记录的场景歌单先于 v1 快照，旧链在歌单不�
     assert.equal(await radio.runScene('work-morning'), 'ok');
     assert.deepEqual(order, ['1', '2', '3']);
     assert.deepEqual(playback._calls.replace[0].titles, ['场景歌单', '场景歌单', '场景歌单']);
+    // 歌单复活已用掉本场景的复活额度；清额度（等同中间成功生成了一批）后快照腿才接得上。
+    storage._map.get(STORAGE_KEY).revivals = {};
     const second = createRadio({ ...deps, storage, playback: fakePlayback(), playlistSync: { tracks: async () => [] } });
     assert.equal(await second.runScene('work-morning'), 'ok');
     assert.deepEqual(order.slice(3), ['4', '5', '6']);
@@ -1001,7 +976,7 @@ test('三个 namespace 分别缺失时 client 可启动原 v1 命令和路径', 
         assert.equal(commands.size, 6, missing);
         assert.ok(commands.has('play-work-morning'), missing);
         const result = await commands.get('play-work-morning').run();
-        assert.match(result.message, /兜底/, missing);
+        assert.match(result.message, /生成失败/, missing);
         disposers.forEach(dispose => dispose());
     }
 });
@@ -1042,6 +1017,528 @@ test('设置变更只在 linkAudioFx 由开到关的跳变上清音效，无关�
     settings = { linkAudioFx: false };
     onChange();
     assert.equal(clears.length, 2);              // 再次 true → false：清
+});
+
+// ---------------------------------------------------------------- F10：恢复 / 升级 / 复活上限 / diag
+
+console.log('F10 state restore / escalation / revival cap / diag');
+
+test('状态恢复：队列主体命中已存批次 → 接管且队尾立即续单', async () => {
+    const playback = fakePlayback({
+        items: [song(1, '红豆', '王菲'), song(2, '阴天', '莫文蔚'), song(3, '遇见', '孙燕姿')],
+        currentIndex: 1, // 剩 1 ≤3 → 恢复即触发续单
+    });
+    const storage = fakeStorage();
+    storage._map.set(STORAGE_KEY, {
+        history: [],
+        batches: {
+            driving: [
+                { s: 'qq', i: '1', t: '红豆', a: '王菲' },
+                { s: 'qq', i: '2', t: '阴天', a: '莫文蔚' },
+                { s: 'qq', i: '3', t: '遇见', a: '孙燕姿' },
+            ],
+        },
+    });
+    const omni = makeOmniFor({
+        笑忘书: [song(4, '笑忘书', '王菲')],
+        至少还有你: [song(5, '至少还有你', '林忆莲')],
+        爱情: [song(6, '爱情', '莫文蔚')],
+    });
+    const { deps, record } = makeDeps({
+        fetch: async () => llmResponse([
+            { title: '笑忘书', artist: '王菲' },
+            { title: '至少还有你', artist: '林忆莲' },
+            { title: '爱情', artist: '莫文蔚' },
+        ]),
+        omni, playback, storage,
+    });
+    const radio = createRadio(deps);
+    await radio.restore();
+    assert.equal(radio._state.activeSceneId, 'driving');
+    assert.equal(record.fetches.length, 1, '恢复后队尾应立即发起一次续单');
+    const cont = playback._calls.replace[0];
+    assert.deepEqual(cont.titles.slice(0, 3), ['红豆', '阴天', '遇见']);
+    assert.deepEqual(cont.titles.slice(3), ['笑忘书', '至少还有你', '爱情']);
+    assert.deepEqual(
+        storage._map.get(STORAGE_KEY).batches.driving.map((e) => e.i),
+        ['4', '5', '6'],
+        'batches 应换成新批次 id',
+    );
+});
+
+test('状态恢复：队列主体不是电台批次 → 不接管不发 LLM', async () => {
+    const playback = fakePlayback({
+        items: [song(1, '红豆', '王菲'), song(7, '别人的歌', '某人'), song(8, '另一首', '路人'), song(9, '第三首', '路人')],
+        currentIndex: 0,
+    });
+    const storage = fakeStorage();
+    storage._map.set(STORAGE_KEY, {
+        history: [],
+        batches: { driving: [{ s: 'qq', i: '1', t: '红豆', a: '王菲' }, { s: 'qq', i: '2', t: '阴天', a: '莫文蔚' }, { s: 'qq', i: '3', t: '遇见', a: '孙燕姿' }] },
+    });
+    const { deps, record } = makeDeps({ playback, storage });
+    const radio = createRadio(deps);
+    await radio.restore();
+    assert.equal(radio._state.activeSceneId, null, '只有 1/4 命中，不算队列主体');
+    assert.equal(record.fetches.length, 0);
+});
+
+test('续单失败 → 升级一次整队新生成（整队替换并开播）', async () => {
+    const playback = fakePlayback({
+        items: [song(1, '红豆', '王菲'), song(2, '阴天', '莫文蔚'), song(3, '遇见', '孙燕姿')],
+        currentIndex: 1,
+    });
+    const omni = makeOmniFor({
+        笑忘书: [song(4, '笑忘书', '王菲')],
+        至少还有你: [song(5, '至少还有你', '林忆莲')],
+        爱情: [song(6, '爱情', '莫文蔚')],
+    });
+    const { deps } = makeDeps({
+        fetch: seqFetch([
+            async () => { throw new Error('llm down'); }, // 续单败
+            async () => llmResponse([ // 升级整队成
+                { title: '笑忘书', artist: '王菲' },
+                { title: '至少还有你', artist: '林忆莲' },
+                { title: '爱情', artist: '莫文蔚' },
+            ]),
+        ]),
+        omni, playback,
+    });
+    const radio = createRadio(deps);
+    radio._state.activeSceneId = 'driving';
+    [1, 2, 3].forEach((id) => radio._state.queuedKeys.add(`id:qq:${id}`));
+    await radio.onQueueChanged();
+    assert.equal(playback._calls.replace.length, 1, '升级只整队替换一次');
+    assert.deepEqual(playback._calls.replace[0].titles, ['笑忘书', '至少还有你', '爱情']);
+    assert.equal(playback._calls.playItem[0], 0);
+    assert.equal(radio._state.activeSceneId, 'driving');
+    assert.equal(radio._state.contFails, 0);
+});
+
+test('续单 append 被拒 → 同样升级整队新生成', async () => {
+    const playback = fakePlayback({
+        items: [song(1, '红豆', '王菲'), song(2, '阴天', '莫文蔚'), song(3, '遇见', '孙燕姿')],
+        currentIndex: 1,
+    });
+    // append 路径 4 次 stale-version 全拒（超 HARD_RETRIES=3），升级的整队路径最后一次才放行。
+    playback._refusals.push('stale-version', 'stale-version', 'stale-version', 'stale-version');
+    const omni = makeOmniFor({
+        笑忘书: [song(4, '笑忘书', '王菲')],
+        至少还有你: [song(5, '至少还有你', '林忆莲')],
+        爱情: [song(6, '爱情', '莫文蔚')],
+    });
+    const { deps, record } = makeDeps({
+        fetch: seqFetch([
+            async () => llmResponse([ // 续单生成成功，但 append 被拒
+                { title: '笑忘书', artist: '王菲' },
+                { title: '至少还有你', artist: '林忆莲' },
+                { title: '爱情', artist: '莫文蔚' },
+            ]),
+            async () => llmResponse([ // 升级整队
+                { title: '笑忘书', artist: '王菲' },
+                { title: '至少还有你', artist: '林忆莲' },
+                { title: '爱情', artist: '莫文蔚' },
+            ]),
+        ]),
+        omni, playback,
+    });
+    const radio = createRadio(deps);
+    radio._state.activeSceneId = 'driving';
+    [1, 2, 3].forEach((id) => radio._state.queuedKeys.add(`id:qq:${id}`));
+    await radio.onQueueChanged();
+    assert.equal(record.fetches.length, 2, '续单与升级各一次 LLM');
+    const last = playback._calls.replace.at(-1);
+    assert.deepEqual(last.titles, ['笑忘书', '至少还有你', '爱情'], '升级整队只放新批');
+    assert.equal(radio._state.activeSceneId, 'driving');
+});
+
+test('升级整队也失败 → 停用续播 + 错误 toast 带环节 + diag 落盘', async () => {
+    const storage = fakeStorage();
+    storage._map.set(STORAGE_KEY, { history: [], batches: {}, revivals: { driving: 1 } }); // 复活额度已用尽
+    const playback = fakePlayback({
+        items: [song(1, '红豆', '王菲'), song(2, '阴天', '莫文蔚'), song(3, '遇见', '孙燕姿')],
+        currentIndex: 1,
+    });
+    const { deps, record } = makeDeps({
+        fetch: async () => { throw new Error('llm down'); },
+        playback, storage,
+        omni: fakeOmni({ resolve: () => ({ status: 'found', song: song(1, '红豆', '王菲') }) }),
+    });
+    const radio = createRadio(deps);
+    radio._state.activeSceneId = 'driving';
+    [1, 2, 3].forEach((id) => radio._state.queuedKeys.add(`id:qq:${id}`));
+    await radio.onQueueChanged();
+    assert.equal(radio._state.activeSceneId, null);
+    const errors = record.toasts.filter((t) => t.type === 'error').map((t) => t.message);
+    assert.ok(errors.some((m) => m.includes('不再重放')), '兜底用尽应提示不再重放');
+    assert.ok(errors.some((m) => m.includes('停止自动续播') && m.includes('生成环节')), '停用 toast 带失败环节');
+    const diag = storage._map.get(DIAG_STORAGE_KEY);
+    assert.equal(diag.scene, 'driving');
+    assert.equal(diag.stage, 'fallback');
+    assert.ok(diag.error.startsWith('llm:'), `diag error 应保留根因环节: ${diag.error}`);
+    assert.equal(diag.consecutiveFails, 2);
+});
+
+test('复活上限：手动点卡第二次失败不再重播同批', async () => {
+    const storage = fakeStorage();
+    storage._map.set(STORAGE_KEY, {
+        history: [],
+        batches: {
+            'work-morning': [
+                { s: 'qq', i: '99', t: '红豆', a: '王菲' },
+                { s: 'qq', i: '98', t: '阴天', a: '莫文蔚' },
+                { s: 'qq', i: '97', t: '遇见', a: '孙燕姿' },
+            ],
+        },
+    });
+    const playback = fakePlayback();
+    const omni = fakeOmni({
+        resolve: (key) => ({ status: 'found', song: song(key.id, '复活歌', '王菲') }),
+        search: () => ({ items: [], nextCursor: null, total: 0 }),
+    });
+    const { deps, record } = makeDeps({
+        fetch: async () => { throw new Error('down'); },
+        omni, playback, storage,
+    });
+    const radio = createRadio(deps);
+    assert.equal(await radio.runScene('work-morning'), 'ok'); // 第一次：快照复活
+    assert.equal(playback._calls.replace.length, 1);
+    radio._state.lastGenAt = 0;
+    assert.equal(await radio.runScene('work-morning'), 'fail'); // 第二次：不许重放
+    assert.equal(playback._calls.replace.length, 1, '同批不得重播第二遍');
+    assert.ok(record.toasts.some((t) => t.type === 'error' && t.message.includes('不再重放')));
+    const diag = storage._map.get(DIAG_STORAGE_KEY);
+    assert.equal(diag.stage, 'fallback');
+    assert.equal(diag.consecutiveFails, 2);
+});
+
+test('diag：真生成成功后清零，失败按环节落盘', async () => {
+    const storage = fakeStorage();
+    storage._map.set(DIAG_STORAGE_KEY, { at: 1, scene: 'driving', stage: 'llm', error: 'x', consecutiveFails: 2 });
+    const playback = fakePlayback();
+    const omni = makeOmniFor({
+        红豆: [song(1, '红豆', '王菲')],
+        阴天: [song(2, '阴天', '莫文蔚')],
+        遇见: [song(3, '遇见', '孙燕姿')],
+    });
+    const { deps } = makeDeps({
+        fetch: async () => llmResponse([
+            { title: '红豆', artist: '王菲' },
+            { title: '阴天', artist: '莫文蔚' },
+            { title: '遇见', artist: '孙燕姿' },
+        ]),
+        omni, playback, storage,
+    });
+    const radio = createRadio(deps);
+    assert.equal(await radio.runScene('work-morning'), 'ok');
+    assert.equal(storage._map.has(DIAG_STORAGE_KEY), false, '成功后 diag 应清零');
+    assert.equal(radio._state.contFails, 0);
+});
+
+test('续单窗口内队列被用户接管 → 停用不抢队（不升级、不动用户队列）', async () => {
+    const playback = fakePlayback({
+        items: [song(1, '红豆', '王菲'), song(2, '阴天', '莫文蔚'), song(3, '遇见', '孙燕姿')],
+        currentIndex: 1,
+    });
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const omni = makeOmniFor({
+        笑忘书: [song(4, '笑忘书', '王菲')],
+        至少还有你: [song(5, '至少还有你', '林忆莲')],
+        爱情: [song(6, '爱情', '莫文蔚')],
+    });
+    const { deps, record } = makeDeps({
+        fetch: async () => {
+            await gate;
+            return llmResponse([
+                { title: '笑忘书', artist: '王菲' },
+                { title: '至少还有你', artist: '林忆莲' },
+                { title: '爱情', artist: '莫文蔚' },
+            ]);
+        },
+        omni, playback,
+    });
+    const radio = createRadio(deps);
+    radio._state.activeSceneId = 'driving';
+    [1, 2, 3].forEach((id) => radio._state.queuedKeys.add(`id:qq:${id}`));
+    const pending = radio.onQueueChanged();
+    for (let i = 0; i < 50 && !record.fetches.length; i += 1) await Promise.resolve(); // 等 LLM 请求发出
+    // 生成窗口内用户整队换成自己的歌
+    await playback.replaceQueue([song(90, '用户歌1', '某人'), song(91, '用户歌2', '某人')], { expectedVersion: 'v1' });
+    release();
+    await pending;
+    assert.equal(record.fetches.length, 1, '被接管不升级：不再发第二次 LLM');
+    assert.equal(radio._state.activeSceneId, null);
+    assert.equal(playback._calls.replace.length, 1, '唯一的 replace 是用户自己的换队');
+    assert.deepEqual(playback._songs().map((s) => s.title), ['用户歌1', '用户歌2'], '用户队列不被电台歌污染');
+});
+
+test('续单窗口内队列排空 → 升级整队补锅并开播', async () => {
+    const playback = fakePlayback({
+        items: [song(1, '红豆', '王菲'), song(2, '阴天', '莫文蔚'), song(3, '遇见', '孙燕姿')],
+        currentIndex: 1,
+    });
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const omni = makeOmniFor({
+        笑忘书: [song(4, '笑忘书', '王菲')],
+        至少还有你: [song(5, '至少还有你', '林忆莲')],
+        爱情: [song(6, '爱情', '莫文蔚')],
+    });
+    const { deps, record } = makeDeps({
+        fetch: seqFetch([
+            async () => { await gate; return llmResponse([
+                { title: '笑忘书', artist: '王菲' },
+                { title: '至少还有你', artist: '林忆莲' },
+                { title: '爱情', artist: '莫文蔚' },
+            ]); },
+            async () => llmResponse([
+                { title: '笑忘书', artist: '王菲' },
+                { title: '至少还有你', artist: '林忆莲' },
+                { title: '爱情', artist: '莫文蔚' },
+            ]),
+        ]),
+        omni, playback,
+    });
+    const radio = createRadio(deps);
+    radio._state.activeSceneId = 'driving';
+    [1, 2, 3].forEach((id) => radio._state.queuedKeys.add(`id:qq:${id}`));
+    const pending = radio.onQueueChanged();
+    for (let i = 0; i < 50 && !record.fetches.length; i += 1) await Promise.resolve();
+    await playback.replaceQueue([], { expectedVersion: 'v1' }); // 生成窗口内队列被排空
+    release();
+    await pending;
+    assert.equal(record.fetches.length, 2, '续单败后升级一次整队');
+    const last = playback._calls.replace.at(-1);
+    assert.deepEqual(last.titles, ['笑忘书', '至少还有你', '爱情']);
+    assert.equal(playback._calls.playItem[0], 0);
+    assert.equal(radio._state.activeSceneId, 'driving');
+});
+
+test('续单落地但播放已停止 → 从第一首新歌接起，不静默死', async () => {
+    const playback = fakePlayback({
+        items: [song(1, '红豆', '王菲'), song(2, '阴天', '莫文蔚'), song(3, '遇见', '孙燕姿')],
+        currentIndex: 2, // 剩 0 ≤3 触发续单
+    });
+    let playState = 'playing';
+    playback.getState = () => ({ song: null, state: playState, position: 0, duration: 0, liked: false, canLike: false });
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const omni = makeOmniFor({
+        笑忘书: [song(4, '笑忘书', '王菲')],
+        至少还有你: [song(5, '至少还有你', '林忆莲')],
+        爱情: [song(6, '爱情', '莫文蔚')],
+    });
+    const { deps, record } = makeDeps({
+        fetch: async () => {
+            await gate;
+            return llmResponse([
+                { title: '笑忘书', artist: '王菲' },
+                { title: '至少还有你', artist: '林忆莲' },
+                { title: '爱情', artist: '莫文蔚' },
+            ]);
+        },
+        omni, playback,
+    });
+    const radio = createRadio(deps);
+    radio._state.activeSceneId = 'driving';
+    [1, 2, 3].forEach((id) => radio._state.queuedKeys.add(`id:qq:${id}`));
+    const pending = radio.onQueueChanged();
+    for (let i = 0; i < 50 && !record.fetches.length; i += 1) await Promise.resolve();
+    playState = 'stopped'; // 生成窗口内队列自然播完
+    release();
+    await pending;
+    assert.equal(playback._calls.replace.length, 1);
+    assert.equal(playback._calls.playItem[0], 3, '触发时在播、落地已停 → 从第一首新歌补播');
+    assert.equal(playback._songs().length, 6);
+});
+
+test('续单触发时已暂停 → 只接尾不补播（用户自己停的，不替他拉回）', async () => {
+    const playback = fakePlayback({
+        items: [song(1, '红豆', '王菲'), song(2, '阴天', '莫文蔚'), song(3, '遇见', '孙燕姿')],
+        currentIndex: 2,
+    });
+    playback.getState = () => ({ song: null, state: 'paused', position: 0, duration: 0, liked: false, canLike: false });
+    const omni = makeOmniFor({
+        笑忘书: [song(4, '笑忘书', '王菲')],
+        至少还有你: [song(5, '至少还有你', '林忆莲')],
+        爱情: [song(6, '爱情', '莫文蔚')],
+    });
+    const { deps } = makeDeps({
+        fetch: async () => llmResponse([
+            { title: '笑忘书', artist: '王菲' },
+            { title: '至少还有你', artist: '林忆莲' },
+            { title: '爱情', artist: '莫文蔚' },
+        ]),
+        omni, playback,
+    });
+    const radio = createRadio(deps);
+    radio._state.activeSceneId = 'driving';
+    [1, 2, 3].forEach((id) => radio._state.queuedKeys.add(`id:qq:${id}`));
+    await radio.onQueueChanged();
+    assert.equal(playback._calls.replace.length, 1);
+    assert.equal(playback._calls.playItem.length, 0, '暂停状态下续单不得强行开播');
+    assert.equal(playback._songs().length, 6);
+});
+
+test('升级窗口内队列被用户接管 → 整队不落、静默停用（不抢队）', async () => {
+    const playback = fakePlayback({
+        items: [song(1, '红豆', '王菲'), song(2, '阴天', '莫文蔚'), song(3, '遇见', '孙燕姿')],
+        currentIndex: 1,
+    });
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const { deps, record } = makeDeps({
+        fetch: seqFetch([
+            async () => { throw new Error('offline'); }, // 续单 LLM 失败
+            async () => { await gate; return llmResponse([
+                { title: '笑忘书', artist: '王菲' },
+                { title: '至少还有你', artist: '林忆莲' },
+                { title: '爱情', artist: '莫文蔚' },
+            ]); }, // 升级整队 LLM
+        ]),
+        omni: makeOmniFor({
+            笑忘书: [song(4, '笑忘书', '王菲')],
+            至少还有你: [song(5, '至少还有你', '林忆莲')],
+            爱情: [song(6, '爱情', '莫文蔚')],
+        }),
+        playback,
+    });
+    const radio = createRadio(deps);
+    radio._state.activeSceneId = 'driving';
+    [1, 2, 3].forEach((id) => radio._state.queuedKeys.add(`id:qq:${id}`));
+    const pending = radio.onQueueChanged();
+    for (let i = 0; i < 80 && record.fetches.length < 2; i += 1) await Promise.resolve(); // 等升级 LLM 发出
+    await playback.replaceQueue([song(90, '用户歌1', '某人'), song(91, '用户歌2', '某人')], { expectedVersion: 'v1' });
+    release();
+    await pending;
+    assert.equal(record.fetches.length, 2, '升级链仍只发一次 LLM');
+    assert.equal(playback._calls.replace.length, 1, '升级送队被归属闸拦下，唯一 replace 是用户的');
+    assert.deepEqual(playback._songs().map((s) => s.title), ['用户歌1', '用户歌2'], '用户队列原样');
+    assert.equal(radio._state.activeSceneId, null);
+    assert.equal(record.toasts.some((t) => t.message.includes('已停止自动续播')), false, '被接管不弹失败 toast');
+});
+
+test('送队落地后模组被停用 → 不再开播、不上音效', async () => {
+    const playback = fakePlayback();
+    const effects = [];
+    const audioFx = {
+        applyProfile: async (profile) => { effects.push(['apply', profile]); },
+        clearProfile: async () => { effects.push(['clear']); },
+    };
+    const omni = makeOmniFor({
+        红豆: [song(1, '红豆', '王菲')],
+        阴天: [song(2, '阴天', '莫文蔚')],
+        遇见: [song(3, '遇见', '孙燕姿')],
+    });
+    const { deps } = makeDeps({
+        fetch: async () => llmResponse([
+            { title: '红豆', artist: '王菲' },
+            { title: '阴天', artist: '莫文蔚' },
+            { title: '遇见', artist: '孙燕姿' },
+        ]),
+        omni, playback,
+    });
+    let radio;
+    const origReplace = playback.replaceQueue;
+    playback.replaceQueue = async (list, opts) => {
+        const result = await origReplace(list, opts);
+        radio.dispose(); // replaceQueue await 返回与后续开播之间停用
+        return result;
+    };
+    radio = createRadio({ ...deps, audioFx });
+    const result = await radio.runScene('work-morning');
+    assert.equal(result, 'fail');
+    assert.equal(playback._songs().length, 3, 'replace 已提交无法撤销');
+    assert.equal(playback._calls.playItem.length, 0, '停用后不再开播');
+    assert.equal(effects.filter((e) => e[0] === 'apply').length, 0, '停用后不再叠加音效');
+});
+
+test('整队替换后旧批次键被清掉（历史键不再把用户队列误判为电台）', async () => {
+    const playback = fakePlayback();
+    const omni = makeOmniFor({
+        红豆: [song(1, '红豆', '王菲')],
+        阴天: [song(2, '阴天', '莫文蔚')],
+        遇见: [song(3, '遇见', '孙燕姿')],
+    });
+    const { deps } = makeDeps({
+        fetch: async () => llmResponse([
+            { title: '红豆', artist: '王菲' },
+            { title: '阴天', artist: '莫文蔚' },
+            { title: '遇见', artist: '孙燕姿' },
+        ]),
+        omni, playback,
+    });
+    const radio = createRadio(deps);
+    radio._state.queuedKeys.add('id:qq:999'); // 上一批残留的键
+    await radio.runScene('work-morning');
+    assert.equal(radio._state.queuedKeys.has('id:qq:999'), false, '整队替换后旧键被清');
+    assert.equal(radio._state.queuedKeys.size, 6, '只剩新批次 3 首的 id+pair 键');
+});
+
+test('送队瞬态重试中停用模组 → 不再改写队列', async () => {
+    const playback = fakePlayback();
+    playback._refusals.push('transition', 'transition', 'transition', 'transition', 'transition', 'transition');
+    const omni = makeOmniFor({
+        红豆: [song(1, '红豆', '王菲')],
+        阴天: [song(2, '阴天', '莫文蔚')],
+        遇见: [song(3, '遇见', '孙燕姿')],
+    });
+    const { deps } = makeDeps({
+        fetch: async () => llmResponse([
+            { title: '红豆', artist: '王菲' },
+            { title: '阴天', artist: '莫文蔚' },
+            { title: '遇见', artist: '孙燕姿' },
+        ]),
+        omni, playback,
+    });
+    let radio;
+    deps.sleep = async () => { radio.dispose(); }; // 第一次瞬态退避时停用
+    radio = createRadio(deps);
+    const result = await radio.runScene('work-morning');
+    assert.equal(result, 'fail');
+    assert.equal(playback._calls.replace.length, 1, '停用后不再重试送队');
+    assert.equal(playback._songs().length, 0, '队列未被改写');
+});
+
+test('全链 F10：激活恢复 → 复活一次 → 队尾再败 → 停用不重放', async () => {
+    const storage = fakeStorage();
+    storage._map.set(STORAGE_KEY, {
+        history: [],
+        batches: {
+            driving: [
+                { s: 'qq', i: '1', t: '红豆', a: '王菲' },
+                { s: 'qq', i: '2', t: '阴天', a: '莫文蔚' },
+                { s: 'qq', i: '3', t: '遇见', a: '孙燕姿' },
+            ],
+        },
+    });
+    const playback = fakePlayback({
+        items: [song(1, '红豆', '王菲'), song(2, '阴天', '莫文蔚'), song(3, '遇见', '孙燕姿')],
+        currentIndex: 1,
+    });
+    const omni = fakeOmni({
+        resolve: (key) => ({ status: 'found', song: song(key.id, { 1: '红豆', 2: '阴天', 3: '遇见' }[key.id], '王菲') }),
+        search: () => ({ items: [], nextCursor: null, total: 0 }),
+    });
+    const { deps, record } = makeDeps({
+        fetch: async () => { throw new Error('down'); },
+        omni, playback, storage,
+    });
+    const radio = createRadio(deps);
+    await radio.restore();
+    // 恢复即触发一轮：续单败 → 升级败 → 快照复活（本轮唯一一次重播）
+    assert.equal(playback._calls.replace.length, 1);
+    assert.equal(radio._state.activeSceneId, 'driving');
+    // 复活批放到队尾 → 第二轮：续单败 → 升级败 → 额度已尽 → 停用
+    playback._setIndex(2);
+    radio._state.lastGenAt = 0; // 冷却只防真机重入，测试直通
+    await radio.onQueueChanged();
+    assert.equal(playback._calls.replace.length, 1, '同批不得重播第二遍');
+    assert.equal(radio._state.activeSceneId, null);
+    assert.ok(record.toasts.some((t) => t.type === 'error' && t.message.includes('停止自动续播')));
+    const diag = storage._map.get(DIAG_STORAGE_KEY);
+    assert.equal(diag.stage, 'fallback');
 });
 
 process.on('beforeExit', () => {

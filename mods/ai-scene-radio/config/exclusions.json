@@ -1,5 +1,5 @@
 {
-  "note": "科玲收藏簇：confirmed=已确认(K)，suspected=疑似(S，逐首未定默认不算 Eric)。推荐/续单时整簇排除。源：qqmusic-archive/归属划分.md (2026-11-04)",
+  "note": "科玲收藏簇：confirmed=已确认(K)，suspected=疑似(S，逐首未定默认不算 Eric)。只用于口味分析时防画像混淆，不是聆听禁令；F9 起选歌/续单不再按它排除。源：qqmusic-archive/归属划分.md (2026-11-04)",
   "blockedArtists": [
     "1个球",
     "Bao小易",

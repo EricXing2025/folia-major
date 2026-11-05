@@ -107,6 +107,8 @@ export const SCENES = [
     }
 ];
 
+// EXCLUSIONS 只是口味分析时防画像混淆的工具（哪些歌不算 Eric 的口味证据），不是聆听禁令。
+// F9 起选歌链路不再读取它：符合画像的歌手（含名单内）照常可选。数据保留作分析溯源，勿删。
 export const EXCLUSIONS = {
     "blockedArtists": [
         "1个球",

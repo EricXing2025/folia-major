@@ -6,10 +6,11 @@
 //   1. 场景命令 → 组装提示词（口味画像+场景参数+已播避重+跳歌负反馈）；
 //   2. folium.net.fetch 调 LLM（trendxai 网关，OpenAI 兼容；密钥走 folium.secrets；
 //      网关在 Cloudflare 后，必须带浏览器 UA）；
-//   3. folium.omni 逐首搜索核验：确切版本、可播、整簇排除、去重与避重；
-//   4. folium.playback.replaceQueue 整队送播并开播；队列剩 ≤3 首自动续单；
+//   3. folium.omni 逐首搜索核验：确切版本、可播、去重与避重；
+//   4. folium.playback.replaceQueue 整队送播并开播；队列剩 ≤3 首自动续单，续单失败升级一次整队；
 //   5. 每秒采样播放位置：songChanged 时 <30 秒切走记负反馈、听完记正反馈，存 folium.storage。
-// 兜底（生成失败/无 key/核验为空）：有 bridge 时从已记录歌单尝试，之后沿用 v1 快照 → 歌手 → 手动提示。
+// 兜底（生成失败/无 key/核验为空）：有 bridge 时从已记录歌单尝试，之后沿用 v1 快照 → 歌手 → 手动提示；
+// 歌单与快照属「重播同一批」，自上次成功生成起最多复活一次，用尽弹错误 toast；失败尝试落盘 diag。
 
 import { createRadio, SECRET_KEY, DEFAULT_GATEWAY, DEFAULT_MODEL } from './radio.mjs';
 import { createScenePlaylistSync } from './sceneBridge.mjs';
@@ -144,7 +145,7 @@ export default function activate(folium) {
                     ? `「${scene.label}」电台已开播`
                     : result === 'busy'
                         ? '电台正在生成中，稍候再点'
-                        : `「${scene.label}」生成失败，已走兜底`;
+                        : `「${scene.label}」生成失败`;
                 return { message };
             },
         });
@@ -177,6 +178,8 @@ export default function activate(folium) {
         } catch {
             /* 拿不到就等第一条 songChanged */
         }
+        // 停用→启用或重启后：队列主体若还是某场景已存批次，恢复自动续单。
+        void radio.restore();
         // 每秒采样一次播放位置，songChanged 时据此判「切走 / 听完」。
         folium.every(1000, () => {
             try {

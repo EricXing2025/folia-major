@@ -148,3 +148,39 @@ Argon 独立审查修复 F1–F7 + 新功能 F8（电台卡片封面）。已核
 - `npm run typecheck`；`npm run test:unit`（omni.test、foliumSessionBridge.test、audioEqualizerModCurve.test、omniArchitecture）；`node mods/ai-scene-radio/tests/run.mjs`；`npm run folium:check ai-scene-radio`。
 - 新增测试：`foliumSessionBridge.test.ts` 改 mock getSongDetails + >500 上限；`omni.test.ts` 加差量更新用例（add 失败不 del、只删过期曲）。
 - 收尾按 development-workflow 派独立子代理审查，逐条核实再交付。
+
+---
+
+# PLAN — 修复批第二轮 F9 + F10（fix/v2-argon-batch 追加，2026-11-05）
+
+基线 2f53794e（F1–F8 已交付核证）。只动 `mods/ai-scene-radio/**` 与相关断言，分支基线不变。
+
+## F9 选歌去硬屏蔽（Eric 定版）
+
+82 人排除名单只是口味分析防画像混淆的工具，不是聆听禁令；选歌只按画像判断。
+
+- radio.mjs：删 buildPrompt「以下歌手永不出现…」行及 `exclusions` 参数；删 `buildExclusionIndex`/`isExcluded` 与全部 4 处应用点（verifyOne、playlistSync 兜底、快照兜底、降级生成）；import 去 EXCLUSIONS。
+- configData.mjs：EXCLUSIONS 数据保留，注释标明选歌不再使用、仅分析溯源。
+- client.mjs / README 同步措辞。tests/run.mjs 删 4 个排除簇用例，buildPrompt 断言改为无屏蔽行，全链用例改为名单内歌曲照常入队。
+
+## F10 续单失效与静默兜底（真机故障：14:45 后再无新批次，快照无限重播）
+
+结构性修复，红线：任何失败不打断在播队列；升级路径每轮一次 LLM；不改画像/场景/批次大小。
+
+1. **状态恢复** `restore()`：激活时读 batches 与实时队列按 song identity 对齐——队列主体（命中 ≥MIN_QUEUE_SONGS 且过半）等于某场景批次则恢复 activeSceneId 并重建 queuedKeys，随后走一遍 onQueueChanged 判定（队尾立即续单）。client 仅 main context 调 `void radio.restore()`。
+2. **续单升级**：continuation 'fail' → `runScene(sceneId, {force:true})` 整队新生成一次（跳冷却，等同手动点卡）；整队也 'fail' 或 contFails ≥3 → 停用电台 + 可见错误 toast（带失败环节标签）。busy 不升级不计数。
+3. **复活上限**：storage 增 `revivals[sceneId]`（rememberBatch 成功生成时清零）；fallback 入口检查 ≥1 次直接返回 false 不发任何重播，playlistSync 与快照两腿任一复活成功即 +1 落盘；降级腿出新歌不算复活。用完走错误 toast。
+4. **诊断落盘** `aiSceneRadio.diag.v1`：每次生成尝试失败写 `{at, scene, stage: llm|verify|queue|fallback, error, consecutiveFails}`；真生成成功 `storage.delete`。runScene 内按阶段打标（callLlm→llm / verifyBatch→verify / submitQueue→queue / 兜底耗尽→fallback，error 记 `原阶段:message`）。
+5. contFails 改为「连续生成失败」全局计数：runScene 成功清零，任何失败 +1（含兜底救回）；onQueueChanged 不再自管计数，只保留 ≥3 兜底停用闸。
+
+## 验证
+
+- `node mods/ai-scene-radio/tests/run.mjs`：**57 tests passed**（新增：状态恢复对齐/不恢复、续单升级成功与失败停用、append 被拒升级、复活上限、diag 写入与清零、接管不抢队、排空升级、stopped 补播、paused 不补播、dispose 停送、整队替换清旧键等；既有用例同步 F9 断言）。
+- `npm run typecheck` exit 0；`npm run folium:check ai-scene-radio` exit 0 `no problem found`（无 preview/未签名两条 note 属预期）。
+- 真机验收（组织者）：队尾 ≤3 出新批次；停用→启用后续单仍生效；断网点卡第一次复活、第二次错误 toast + diag 落盘。
+
+## 独立审查（2 轮）
+
+**第 1 轮**：2 中 + 8 低。中项已修：①`submitQueue` 重试环与 fallback 在途缺 disposed 复查——循环头加闸；②续单生成窗口内队列漂移——appendQueue 的 getBatch 加归属检查（排空→queue-empty 升级、无电台歌→queue-taken-over 不追加），升级前 `queueOpenForEscalation` 复查归属，stopped 补播接起自然播完。低项采纳：翻页读队异常 try 包住、restore 异常记 warn、restore 接管即 applyAudioProfile、兜底全空 toast 带环节、exclusions.json note 同步 F9 语义、README 重试次数改 ≤3。刻意保留：升级被兜底救回但连败到顶仍停用（contFails 是需求写的 LLM 上限）；mod.json 版本号不动（留给组织者发版）。
+
+**第 2 轮**（复审修复）：1 高 + 4 中，全部修复。H1 升级路径只在生成前验一次归属，窗口内接管会抢队 → `runScene` 加 `guard` 选项走 `replaceWholeGuarded`，送队每轮复查归属，被接管 fatal + 静默停用。M1 补播 `findIndex` 是页内相对下标、真机居中分页会播错 → 改 `result.length - verified.length`（追加必在队尾）。M2 'replaced' 落地后无 disposed 复查 → 主链两路 + 兜底三腿各补一道。M3 补播/升级不区分自然播完与用户主动停 → 触发时记播放态，仅 playing→stopped 补播；ours 队列升级还要求仍在播，paused/stopped 静默停用。M4 `queuedKeys` 只增不减会把用户队列误判电台 → `markQueued(reset)`，整队替换路径（非续单 + 兜底三腿）重置为当批键。低项未处理：瞬态 getQueue 抛错烧一轮生成、dropIndex 可能剔错旧歌、fake 分页语义与宿主居中不同（已有覆盖，残余）、静默停用不清 contFails 等，交付注明。按流程第二轮修复不再审查。
