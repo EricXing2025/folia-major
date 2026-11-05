@@ -24,7 +24,14 @@ exports.default = async (context) => {
   await prepareBundledModels({ outputDir: require("path").join(context.packager.projectDir, "models") });
   if (context.electronPlatformName === 'darwin') {
     const { prepareMacCompanion } = require('../electron/appleMusic/macos/prepareBundle.cjs');
-    prepareMacCompanion({ arch, projectRoot: context.packager.projectDir });
+    try {
+      prepareMacCompanion({ arch, projectRoot: context.packager.projectDir });
+    } catch (error) {
+      // Fork-local leniency (env-gated): a broken local Swift toolchain must not block
+      // packaging for users who do not use Apple Music. Default stays strict.
+      if (process.env.FOLIA_LENIENT_COMPANION !== '1') throw error;
+      console.warn('[beforePack] WARNING: Apple Music companion build failed; continuing without it (FOLIA_LENIENT_COMPANION=1).', error);
+    }
     const { prepareBundledKoffi } = await import('../packaging/macos/prepare-koffi.mjs');
     await prepareBundledKoffi({ arch, projectRoot: context.packager.projectDir });
     // The wallpaper's Stage Manager click guard (issue #698), a small native helper.
