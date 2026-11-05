@@ -20,6 +20,8 @@ import {
     DEFAULT_MODEL,
 } from '../radio.mjs';
 import { PROFILE, SCENES, EXCLUSIONS } from '../configData.mjs';
+import activate from '../client.mjs';
+import { createScenePlaylistSync, PLAYLIST_IDS_KEY, playlistTitle, SCENE_PROFILES } from '../sceneBridge.mjs';
 
 let passed = 0;
 const test = (name, fn) => {
@@ -602,6 +604,224 @@ test('续单：>500 长队列分页读全，旧歌不丢尾', async () => {
     assert.equal(cont.count, 603, '600 旧歌 + 3 新歌，长队列尾部不丢');
     assert.equal(cont.titles[0], '红豆');
     assert.deepEqual(cont.titles.slice(-3), ['笑忘书', '至少还有你', '爱情']);
+});
+
+test('五场景 profile 表：10 段与截止频率、动态和空间参数', () => {
+    assert.deepEqual(Object.keys(SCENE_PROFILES).sort(), SCENES.map(scene => scene.id).sort());
+    const expected = [
+        [[0, 1, 0, 1, 3, 3, 2, 1, 1, 0], 60, 20000, 40, 90, 5],
+        [[0, 1, 0, 1, 3, 3, 2, 1, 1, 0], 60, 20000, 40, 90, 5],
+        [[0, 1, 0, 1, 3, 3, 2, 0, 0, -1], 60, 20000, 40, 90, 8],
+        [[1, 3, 2, 1, 2, 2, 1, 1, 0, 0], 40, 20000, 30, 100, 0],
+        [[0, 0, 0, 0, 1, 1, 0, 0, 0, 0], 30, 16000, 15, 80, 0],
+    ];
+    assert.deepEqual(SCENES.map(scene => {
+        const p = SCENE_PROFILES[scene.id];
+        return [p.bandsDb, p.lowCutHz, p.highCutHz, p.compressorPct, p.widthPct, p.reverbPct];
+    }), expected);
+});
+
+test('音效仅在成功开播且设置开启时应用，队列接管、关闭设置及停用时撤回', async () => {
+    const playback = fakePlayback();
+    const effects = [];
+    let enabled = true;
+    const audioFx = {
+        applyProfile: async profile => { effects.push(['apply', profile]); },
+        clearProfile: async () => { effects.push(['clear']); },
+    };
+    const omni = makeOmniFor({
+        红豆: [song(1, '红豆', '王菲')],
+        阴天: [song(2, '阴天', '莫文蔚')],
+        遇见: [song(3, '遇见', '孙燕姿')],
+    });
+    const { deps } = makeDeps({
+        fetch: async () => llmResponse([
+            { title: '红豆', artist: '王菲' }, { title: '阴天', artist: '莫文蔚' }, { title: '遇见', artist: '孙燕姿' },
+        ]),
+        omni, playback,
+        settings: () => ({ linkAudioFx: enabled }),
+    });
+    const radio = createRadio({ ...deps, audioFx });
+    assert.equal(await radio.runScene('work-morning'), 'ok');
+    assert.deepEqual(effects, [['apply', SCENE_PROFILES['work-morning']]]);
+    const snapshot = playback.getQueue();
+    await playback.replaceQueue([song(99, 'Other', 'Someone')], { expectedVersion: snapshot.version });
+    await radio.onQueueChanged();
+    assert.deepEqual(effects[1], ['clear']);
+    radio.dispose();
+    enabled = false;
+    const disabled = createRadio({ ...deps, playback: fakePlayback(), audioFx });
+    assert.equal(await disabled.runScene('work-afternoon'), 'ok');
+    assert.equal(effects.filter(effect => effect[0] === 'apply').length, 1);
+    disabled.dispose();
+    assert.deepEqual(effects.at(-1), ['clear']);
+});
+
+test('歌单：仅 QQ 批次创建一个记录 ID 的专属歌单，后续替换同 ID', async () => {
+    const scene = SCENES[0];
+    const storage = fakeStorage();
+    const calls = { create: [], replace: [] };
+    const list = [];
+    const library = {
+        listPlaylists: async () => list,
+        createPlaylist: async title => {
+            calls.create.push(title);
+            const created = { id: 'owned-id', title };
+            list.push(created);
+            return created;
+        },
+        replacePlaylistSongs: async (id, tracks) => calls.replace.push({ id, tracks }),
+        getPlaylistTracks: async () => [],
+    };
+    const sync = createScenePlaylistSync({ library, storage, activeSource: () => 'qq', accountKey: () => 'account-A' });
+    sync.save(scene, [song(1, '红豆', '王菲')]);
+    await sync.settled();
+    sync.save(scene, [song(2, '阴天', '莫文蔚')]);
+    await sync.settled();
+    assert.deepEqual(calls.create, [playlistTitle(scene)]);
+    assert.deepEqual(storage._map.get(PLAYLIST_IDS_KEY), { 'account-A': { [scene.id]: 'owned-id' } });
+    assert.deepEqual(calls.replace, [
+        { id: 'owned-id', tracks: [{ source: 'qq', id: '1' }] },
+        { id: 'owned-id', tracks: [{ source: 'qq', id: '2' }] },
+    ]);
+});
+
+test('歌单：有记录 ID 但标题不符或 ID 消失，绝不按同名用户歌单接管', async () => {
+    const scene = SCENES[0];
+    const storage = fakeStorage();
+    storage._map.set(PLAYLIST_IDS_KEY, { 'account-A': { [scene.id]: 'missing' } });
+    const writes = [];
+    const library = {
+        listPlaylists: async () => [{ id: 'someone-else', title: playlistTitle(scene) }, { id: 'missing', title: 'Personal' }],
+        createPlaylist: async title => { writes.push(`create:${title}`); return { id: 'new', title }; },
+        replacePlaylistSongs: async id => { writes.push(id); },
+        getPlaylistTracks: async id => { writes.push(`read:${id}`); return []; },
+    };
+    const sync = createScenePlaylistSync({ library, storage, activeSource: () => 'qq', accountKey: () => 'account-A' });
+    sync.save(scene, [song(1, '红豆', '王菲')]);
+    await sync.settled();
+    assert.deepEqual(await sync.tracks(scene), []);
+    assert.deepEqual(writes, []);
+});
+
+test('歌单：非 QQ 来源、不支持 bridge 或写入失败只记日志，不阻塞送播', async () => {
+    const storage = fakeStorage();
+    const warns = [];
+    const library = {
+        listPlaylists: async () => [],
+        createPlaylist: async () => { throw Object.assign(new Error('unsupported'), { code: 'NOT_SUPPORTED' }); },
+    };
+    const sync = createScenePlaylistSync({ library, storage, activeSource: () => 'qq', accountKey: () => 'account-A', log: { warn: (...args) => warns.push(args) } });
+    sync.save(SCENES[0], [song(1, '红豆', '王菲', { source: 'netease' })]);
+    await sync.settled();
+    assert.equal(warns.length, 0);
+    sync.save(SCENES[0], [song(1, '红豆', '王菲')]);
+    await sync.settled();
+    assert.equal(warns.length, 1);
+    assert.equal(warns[0][1].code, 'NOT_SUPPORTED');
+});
+
+test('账户切换或停用后不再触碰另一个 QQ 账号的同 ID 歌单', async () => {
+    const scene = SCENES[0];
+    const storage = fakeStorage();
+    storage._map.set(PLAYLIST_IDS_KEY, { 'account-A': { [scene.id]: 'owned-id' } });
+    let account = 'account-B';
+    const writes = [];
+    const library = {
+        listPlaylists: async () => [{ id: 'owned-id', title: playlistTitle(scene) }],
+        createPlaylist: async title => { writes.push('create'); return { id: 'new-id', title }; },
+        replacePlaylistSongs: async id => { writes.push(`replace:${id}`); },
+        getPlaylistTracks: async id => { writes.push(`read:${id}`); return []; },
+    };
+    const sync = createScenePlaylistSync({ library, storage, activeSource: () => 'qq', accountKey: () => account });
+    assert.deepEqual(await sync.tracks(scene), []);
+    sync.save(scene, [song(1, '红豆', '王菲')]);
+    await sync.settled();
+    assert.deepEqual(storage._map.get(PLAYLIST_IDS_KEY)['account-A'], { [scene.id]: 'owned-id' });
+    assert.equal(writes[0], 'create');
+    assert.equal(writes[1], 'replace:new-id');
+    account = 'account-A';
+    sync.dispose();
+    sync.save(scene, [song(2, '阴天', '莫文蔚')]);
+    await sync.settled();
+    assert.deepEqual(writes, ['create', 'replace:new-id']);
+});
+
+test('歌单异步查找期间切换活跃音源，不在别的平台建单或污染 QQ 记录', async () => {
+    const storage = fakeStorage();
+    const scene = SCENES[0];
+    let source = 'qq';
+    let reads = 0;
+    const get = storage.get;
+    storage.get = async key => {
+        const value = await get(key);
+        if (++reads === 2) source = 'netease';
+        return value;
+    };
+    const writes = [];
+    const library = {
+        listPlaylists: async () => [],
+        createPlaylist: async () => { writes.push('create'); return { id: 'wrong', title: playlistTitle(scene) }; },
+        replacePlaylistSongs: async () => { writes.push('replace'); },
+    };
+    const sync = createScenePlaylistSync({ library, storage, activeSource: () => source, accountKey: () => 'account-A' });
+    sync.save(scene, [song(1, '红豆', '王菲')]);
+    await sync.settled();
+    assert.deepEqual(writes, []);
+    assert.equal(storage._map.has(PLAYLIST_IDS_KEY), false);
+});
+
+test('失败链：已记录的场景歌单先于 v1 快照，旧链在歌单不可用时不变', async () => {
+    const playback = fakePlayback();
+    const storage = fakeStorage();
+    storage._map.set(STORAGE_KEY, { history: [], batches: { 'work-morning': [
+        { s: 'qq', i: '4', t: '旧歌', a: '王菲' }, { s: 'qq', i: '5', t: '旧歌', a: '林忆莲' }, { s: 'qq', i: '6', t: '旧歌', a: '莫文蔚' },
+    ] } });
+    const order = [];
+    const omni = fakeOmni({ resolve: ({ id }) => {
+        order.push(id);
+        return { status: 'found', song: song(id, Number(id) <= 3 ? '场景歌单' : '旧歌', '王菲') };
+    } });
+    const playlistSync = { tracks: async () => [{ source: 'qq', id: '1' }, { source: 'qq', id: '2' }, { source: 'qq', id: '3' }] };
+    const { deps } = makeDeps({ omni, playback });
+    const radio = createRadio({ ...deps, storage, playlistSync });
+    assert.equal(await radio.runScene('work-morning'), 'ok');
+    assert.deepEqual(order, ['1', '2', '3']);
+    assert.deepEqual(playback._calls.replace[0].titles, ['场景歌单', '场景歌单', '场景歌单']);
+    const second = createRadio({ ...deps, storage, playback: fakePlayback(), playlistSync: { tracks: async () => [] } });
+    assert.equal(await second.runScene('work-morning'), 'ok');
+    assert.deepEqual(order.slice(3), ['4', '5', '6']);
+});
+
+test('三个 namespace 分别缺失时 client 可启动原 v1 命令和路径', async () => {
+    for (const missing of ['library', 'audioFx', 'radio']) {
+        const commands = new Map();
+        const disposers = [];
+        const storage = fakeStorage();
+        const folium = {
+            host: { folium: { major: 1, minor: 8 } }, env: { context: 'main' },
+            net: { fetch: async () => llmResponse([]) }, omni: { ...fakeOmni(), listProviders: () => [{ selected: true, providerId: 'qq' }] },
+            playback: fakePlayback(), storage, secrets: fakeSecrets(null),
+            account: { getState: () => ({ accountKey: 'account-A' }) },
+            registries: {
+                settingsSections: { register: () => ({ settings: { get: () => ({}), onChange: () => () => {} } }) },
+                commands: { register: def => commands.set(def.id, def) },
+            },
+            log: { warn: () => {}, info: () => {} }, ui: { toast: () => {} },
+            events: { on: () => () => {} }, every: () => () => {},
+            onDispose: fn => disposers.push(fn),
+            library: { listPlaylists: async () => [], createPlaylist: async () => {}, replacePlaylistSongs: async () => {}, getPlaylistTracks: async () => [] },
+            audioFx: { applyProfile: async () => {}, clearProfile: async () => {} },
+            radio: { registerEntries: () => {}, onStartRequest: () => {} },
+        };
+        delete folium[missing];
+        activate(folium);
+        assert.equal(commands.size, 6, missing);
+        assert.ok(commands.has('play-work-morning'), missing);
+        const result = await commands.get('play-work-morning').run();
+        assert.match(result.message, /兜底/, missing);
+        disposers.forEach(dispose => dispose());
+    }
 });
 
 process.on('beforeExit', () => {

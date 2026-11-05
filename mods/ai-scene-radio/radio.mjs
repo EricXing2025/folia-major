@@ -4,6 +4,7 @@
 // client.mjs 接真宿主，tests/run.mjs 接 fake——本文件不直接碰 folium。
 
 import { PROFILE, SCENES, EXCLUSIONS } from './configData.mjs';
+import { SCENE_PROFILES } from './sceneBridge.mjs';
 
 export const STORAGE_KEY = 'aiSceneRadio.v1';
 export const SECRET_KEY = 'apiKey';
@@ -237,7 +238,7 @@ const clip = (list, limit) => (list.length > limit ? list.slice(list.length - li
 
 // deps: { fetch, omni, playback, storage, secrets, settings(), log, toast, sleep }
 export const createRadio = (deps) => {
-    const { omni, playback, storage, secrets, settings, log, toast } = deps;
+    const { omni, playback, storage, secrets, settings, log, toast, audioFx, playlistSync } = deps;
     const sleep = deps.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     const exclusionIndex = buildExclusionIndex(EXCLUSIONS);
 
@@ -259,6 +260,16 @@ export const createRadio = (deps) => {
             toast?.(message, { type });
         } catch {
             /* toast 不可用就静默 */
+        }
+    };
+    const clearAudioProfile = () => {
+        if (audioFx) void audioFx.clearProfile().catch(error => log?.warn?.('[ai-scene-radio] clear profile failed', error));
+    };
+    const applyAudioProfile = (sceneId) => {
+        if (audioFx && settings()?.linkAudioFx !== false) {
+            void audioFx.applyProfile(SCENE_PROFILES[sceneId]).catch(error => log?.warn?.('[ai-scene-radio] profile failed', error));
+        } else {
+            clearAudioProfile();
         }
     };
 
@@ -475,8 +486,33 @@ export const createRadio = (deps) => {
         await persist();
     };
 
-    // 兜底链：① 该场景上次核验批次快照（resolveSongs 复活）；② 核心歌手降级生成；③ toast 指向同名歌单。
+    // 兜底链：持有的场景歌单 → v1 批次快照 → 核心歌手降级 → 提示手动播。
     const fallback = async (scene) => {
+        if (playlistSync) {
+            const tracks = await playlistSync.tracks(scene);
+            if (tracks.length) {
+                try {
+                    const resolved = await omni.resolveSongs(tracks.filter(track => track.source === 'qq').map(({ source, id }) => ({ source, id })));
+                    const songs = resolved.map(item => item?.status === 'found' ? item.song : null)
+                        .filter(song => song && !isExcluded(song, exclusionIndex) && omni.describeSong?.(song)?.availability !== 'taken-down');
+                    if (songs.length >= MIN_QUEUE_SONGS) {
+                        const result = await replaceWhole(songs);
+                        if (result.status === 'replaced') {
+                            const started = await playback.playQueueItem(0).then(value => value !== false, () => false);
+                            songs.forEach(song => {
+                                state.queuedKeys.add(songIdentity(song));
+                                state.queuedKeys.add(pairIdentity(song));
+                            });
+                            if (started) applyAudioProfile(scene.id);
+                            say(`生成失败，改播「${scene.label}」场景歌单（${songs.length} 首）`);
+                            return true;
+                        }
+                    }
+                } catch (error) {
+                    log?.warn?.('[ai-scene-radio] playlist fallback failed', error);
+                }
+            }
+        }
         const { batches } = await data();
         const saved = Array.isArray(batches[scene.id]) ? batches[scene.id].filter(resolvable) : [];
         if (saved.length) {
@@ -495,13 +531,14 @@ export const createRadio = (deps) => {
                 if (songs.length >= MIN_QUEUE_SONGS) {
                     const result = await replaceWhole(songs);
                     if (result.status === 'replaced') {
-                        await playback.playQueueItem(0).catch(() => false);
+                        const started = await playback.playQueueItem(0).then(value => value !== false, () => false);
                         songs.forEach((song) => {
                             state.queuedKeys.add(songIdentity(song));
                             state.queuedKeys.add(pairIdentity(song));
                         });
                         say(`生成失败，改播「${scene.label}」上次电台批次（${songs.length} 首）`, 'info');
                         log?.info?.(`[ai-scene-radio] fallback: replayed ${songs.length} saved songs for ${scene.id}`);
+                        if (started) applyAudioProfile(scene.id);
                         return true;
                     }
                 }
@@ -548,13 +585,14 @@ export const createRadio = (deps) => {
             if (songs.length >= MIN_QUEUE_SONGS) {
                 const result = await replaceWhole(songs);
                 if (result.status === 'replaced') {
-                    await playback.playQueueItem(0).catch(() => false);
+                    const started = await playback.playQueueItem(0).then(value => value !== false, () => false);
                     songs.forEach((song) => {
                         state.queuedKeys.add(songIdentity(song));
                         state.queuedKeys.add(pairIdentity(song));
                     });
                     say(`生成失败，改播核心歌手精选（${songs.length} 首）`, 'info');
                     log?.info?.(`[ai-scene-radio] fallback: degraded ${songs.length} songs for ${scene.id}`);
+                    if (started) applyAudioProfile(scene.id);
                     return true;
                 }
             }
@@ -595,12 +633,15 @@ export const createRadio = (deps) => {
                     const result = await appendQueue(verified);
                     if (result.status !== 'replaced') throw new Error(`refused:${result.reason}`);
                     await rememberBatch(scene.id, verified);
+                    if (settings()?.savePlaylists !== false) playlistSync?.save(scene, verified);
                     log?.info?.(`[ai-scene-radio] continuation +${verified.length} for ${scene.id}`);
                 } else {
                     const result = await replaceWhole(verified);
                     if (result.status !== 'replaced') throw new Error(`refused:${result.reason}`);
                     const started = await playback.playQueueItem(0).then((v) => v !== false, () => false);
+                    if (started) applyAudioProfile(scene.id);
                     await rememberBatch(scene.id, verified);
+                    if (settings()?.savePlaylists !== false) playlistSync?.save(scene, verified);
                     say(
                         started
                             ? `「${scene.label}」电台已开播（${verified.length} 首）`
@@ -641,6 +682,7 @@ export const createRadio = (deps) => {
         }
         if (!snapshot || snapshot.kind !== 'queue') {
             state.activeSceneId = null;
+            clearAudioProfile();
             return;
         }
         // getQueue 一页最多 500：页不满就直接用；看不全（长队列）就按页读全再判，
@@ -656,7 +698,10 @@ export const createRadio = (deps) => {
         const queuedMatch = (song) =>
             state.queuedKeys.has(songIdentity(song)) || state.queuedKeys.has(pairIdentity(song));
         if (queueSongs.filter(queuedMatch).length === 0) {
-            if (state.queuedKeys.size) state.activeSceneId = null;
+            if (state.queuedKeys.size) {
+                state.activeSceneId = null;
+                clearAudioProfile();
+            }
             return;
         }
         if (shouldContinue(snapshot)) {
@@ -666,6 +711,7 @@ export const createRadio = (deps) => {
             } else if (result === 'fail' && ++state.contFails >= 3) {
                 state.activeSceneId = null;
                 state.contFails = 0;
+                clearAudioProfile();
                 say('电台续单连续失败，已停止自动续播', 'error');
             }
         }
@@ -707,12 +753,15 @@ export const createRadio = (deps) => {
     const stop = () => {
         state.activeSceneId = null;
         state.contFails = 0;
+        clearAudioProfile();
     };
 
     // 模组停用后不再产生任何副作用：在途的生成读到 disposed 直接收手。
     const dispose = () => {
         state.disposed = true;
         state.activeSceneId = null;
+        playlistSync?.dispose?.();
+        clearAudioProfile();
     };
 
     return {
@@ -722,6 +771,7 @@ export const createRadio = (deps) => {
         onSongChanged,
         samplePosition,
         stop,
+        clearAudioProfile,
         dispose,
         _state: state,
     };

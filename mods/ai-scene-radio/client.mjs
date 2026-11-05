@@ -1,5 +1,5 @@
 // mods/ai-scene-radio/client.mjs
-// AI 场景电台 v1：选场景即自动播放符合 Eric 口味的歌。
+// AI 场景电台：选场景即自动播放符合 Eric 口味的歌，v2 桥按能力增量接入。
 // 设计简报：qqmusic-archive/Folia-AI场景电台-设计简报.md（Muse 侧档案）
 //
 // 主流程（radio.mjs 实现，这里只接线）：
@@ -9,11 +9,10 @@
 //   3. folium.omni 逐首搜索核验：确切版本、可播、整簇排除、去重与避重；
 //   4. folium.playback.replaceQueue 整队送播并开播；队列剩 ≤3 首自动续单；
 //   5. 每秒采样播放位置：songChanged 时 <30 秒切走记负反馈、听完记正反馈，存 folium.storage。
-// 兜底（生成失败/无 key/核验为空）：上次核验批次快照 → 核心歌手降级 → 提示手动播同名歌单。
-//   说明：Folium 没有歌单读取 API（omni 不读用户库，platform.raw 只有 netease），
-//   「播现有同名歌单」只能做到快照+降级+指引的等价链，详见 README。
+// 兜底（生成失败/无 key/核验为空）：有 bridge 时从已记录歌单尝试，之后沿用 v1 快照 → 歌手 → 手动提示。
 
 import { createRadio, SECRET_KEY, DEFAULT_GATEWAY, DEFAULT_MODEL } from './radio.mjs';
+import { createScenePlaylistSync } from './sceneBridge.mjs';
 
 /** @typedef {import('../folium').FoliumClientApi} Folium */
 
@@ -55,9 +54,22 @@ export default function activate(folium) {
                 description: { 'zh-CN': 'trendxai 网关的密钥。只显示「已设置/未设置」，不回显。', en: 'Key for the trendxai gateway. Shown only as set/unset, never echoed.' },
                 placeholder: 'sk-…',
             },
+            ...(typeof folium.audioFx === 'object'
+                ? [{ key: 'linkAudioFx', type: 'boolean', label: { 'zh-CN': '联动音效', en: 'Link audio effects' }, defaultValue: true }]
+                : []),
+            ...(typeof folium.library === 'object'
+                ? [{ key: 'savePlaylists', type: 'boolean', label: { 'zh-CN': '保存歌单', en: 'Save scene playlists' }, defaultValue: true }]
+                : []),
         ],
     });
 
+    const playlistSync = typeof folium.library === 'object'
+        ? createScenePlaylistSync({
+            library: folium.library, storage: folium.storage, log: folium.log,
+            activeSource: () => folium.omni.listProviders().find(provider => provider.selected)?.providerId,
+            accountKey: () => folium.account?.getState('qq')?.accountKey,
+        })
+        : null;
     const radio = createRadio({
         fetch: (url, init) => folium.net.fetch(url, init),
         omni: folium.omni,
@@ -65,6 +77,8 @@ export default function activate(folium) {
         storage: folium.storage,
         secrets: folium.secrets,
         settings: () => /** @type {{gatewayBase?: string, model?: string}} */ (section.settings.get()),
+        audioFx: typeof folium.audioFx === 'object' ? folium.audioFx : null,
+        playlistSync,
         log: folium.log,
         toast: (message, options) => folium.ui.toast(message, options),
     });
@@ -76,6 +90,21 @@ export default function activate(folium) {
         driving: 'Driving',
         reading: 'Reading',
     };
+
+    if (folium.env?.context === 'main' && typeof folium.radio === 'object') {
+        try {
+            folium.radio.registerEntries(radio.scenes().map(scene => ({
+                id: scene.id, title: scene.label, subtitle: `AI 电台 · ${scene.label}`,
+            })));
+            folium.radio.onStartRequest(id => { void radio.runScene(id); });
+        } catch (error) {
+            folium.log.warn('[ai-scene-radio] radio cards unavailable', error);
+        }
+    }
+
+    section.settings.onChange(() => {
+        if (section.settings.get().linkAudioFx === false) radio.clearAudioProfile();
+    });
 
     for (const scene of radio.scenes()) {
         folium.registries.commands.register({
