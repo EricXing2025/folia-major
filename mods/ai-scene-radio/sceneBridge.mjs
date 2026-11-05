@@ -1,6 +1,7 @@
 // Optional v2 Folium bridge: profiles and QQ playlist writes stay independent of playback.
 
 export const PLAYLIST_IDS_KEY = 'aiSceneRadio.playlistIds.v1';
+const CREATION_PENDING = 'pending';
 export const SCENE_PROFILES = Object.freeze({
     'work-morning': { bandsDb: [0, 1, 0, 1, 3, 3, 2, 1, 1, 0], lowCutHz: 60, highCutHz: 20000, compressorPct: 40, widthPct: 90, reverbPct: 5 },
     'work-afternoon': { bandsDb: [0, 1, 0, 1, 3, 3, 2, 1, 1, 0], lowCutHz: 60, highCutHz: 20000, compressorPct: 40, widthPct: 90, reverbPct: 5 },
@@ -23,13 +24,19 @@ export const createScenePlaylistSync = ({ library, storage, log, activeSource, a
         if (disposed || !library || activeSource?.() !== 'qq' || !key) return null;
         const ids = (await read())[key] ?? {};
         const id = ids[scene.id];
-        if (typeof id !== 'string' || !id) return null;
+        if (typeof id !== 'string' || !id || id === CREATION_PENDING) return null;
         const found = (await library.listPlaylists()).find(item => item.id === id && item.title === playlistTitle(scene));
         return accountKey?.() === key && activeSource?.() === 'qq' && !disposed ? found ?? null : null;
     };
     const save = (scene, songs) => {
-        if (disposed || !library || activeSource?.() !== 'qq' || !accountKey?.()
-            || !songs.length || songs.some(song => song.source !== 'qq')) return;
+        try {
+            if (disposed || !library || activeSource?.() !== 'qq' || !accountKey?.()
+                || !songs.length || songs.some(song => song.source !== 'qq')) return;
+        } catch (error) {
+            // Export contexts and a stopped host can throw before the first promise is made.
+            log?.warn?.('[ai-scene-radio] playlist write skipped', error);
+            return;
+        }
         // Serialize per mod: overlapping batches cannot create two playlists or overwrite newer storage.
         pending = pending.catch(() => {}).then(async () => {
             const key = accountKey?.();
@@ -40,10 +47,26 @@ export const createScenePlaylistSync = ({ library, storage, log, activeSource, a
             if (!playlist) {
                 // A vanished/mismatched stored ID is never treated as permission to claim a same-named user playlist.
                 if (ids[scene.id] || key !== accountKey?.() || activeSource?.() !== 'qq' || disposed) return;
-                playlist = await library.createPlaylist(playlistTitle(scene));
-                ids[scene.id] = playlist.id;
-                saved[key] = ids;
-                await storage.set(PLAYLIST_IDS_KEY, saved);
+                // A timed-out QQ create may already have succeeded. Reserve before sending it, never blindly retry.
+                await storage.set(PLAYLIST_IDS_KEY, {
+                    ...saved, [key]: { ...ids, [scene.id]: CREATION_PENDING },
+                });
+                try {
+                    playlist = await library.createPlaylist(playlistTitle(scene));
+                } catch (error) {
+                    if (error?.code === 'NOT_SUPPORTED') {
+                        // The core refused before it could send a create request.
+                        await storage.set(PLAYLIST_IDS_KEY, saved);
+                    }
+                    throw error;
+                }
+                if (disposed || activeSource?.() !== 'qq' || key !== accountKey?.()) return;
+                if (!/^\d+$/.test(playlist?.id) || playlist.title !== playlistTitle(scene)) {
+                    throw new Error('QQ playlist creation returned an unexpected identity');
+                }
+                await storage.set(PLAYLIST_IDS_KEY, {
+                    ...saved, [key]: { ...ids, [scene.id]: playlist.id },
+                });
             }
             if (disposed || activeSource?.() !== 'qq' || key !== accountKey?.()) return;
             await library.replacePlaylistSongs(playlist.id, songs.map(song => ({ source: song.source, id: String(song.id) })));

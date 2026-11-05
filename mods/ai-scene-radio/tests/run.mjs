@@ -666,7 +666,7 @@ test('歌单：仅 QQ 批次创建一个记录 ID 的专属歌单，后续替换
         listPlaylists: async () => list,
         createPlaylist: async title => {
             calls.create.push(title);
-            const created = { id: 'owned-id', title };
+            const created = { id: '123', title };
             list.push(created);
             return created;
         },
@@ -679,10 +679,10 @@ test('歌单：仅 QQ 批次创建一个记录 ID 的专属歌单，后续替换
     sync.save(scene, [song(2, '阴天', '莫文蔚')]);
     await sync.settled();
     assert.deepEqual(calls.create, [playlistTitle(scene)]);
-    assert.deepEqual(storage._map.get(PLAYLIST_IDS_KEY), { 'account-A': { [scene.id]: 'owned-id' } });
+    assert.deepEqual(storage._map.get(PLAYLIST_IDS_KEY), { 'account-A': { [scene.id]: '123' } });
     assert.deepEqual(calls.replace, [
-        { id: 'owned-id', tracks: [{ source: 'qq', id: '1' }] },
-        { id: 'owned-id', tracks: [{ source: 'qq', id: '2' }] },
+        { id: '123', tracks: [{ source: 'qq', id: '1' }] },
+        { id: '123', tracks: [{ source: 'qq', id: '2' }] },
     ]);
 });
 
@@ -719,6 +719,55 @@ test('歌单：非 QQ 来源、不支持 bridge 或写入失败只记日志，�
     await sync.settled();
     assert.equal(warns.length, 1);
     assert.equal(warns[0][1].code, 'NOT_SUPPORTED');
+    assert.equal(storage._map.get(PLAYLIST_IDS_KEY)?.['account-A']?.[SCENES[0].id], undefined);
+});
+
+test('QQ 建单响应不明时保留预留标记，后续批次不再冒险重复创建', async () => {
+    const scene = SCENES[0];
+    const storage = fakeStorage();
+    let creates = 0;
+    const sync = createScenePlaylistSync({
+        library: {
+            listPlaylists: async () => [],
+            createPlaylist: async () => { creates += 1; throw new Error('response unknown; playlist may exist'); },
+            replacePlaylistSongs: async () => { assert.fail('must not replace an untracked playlist'); },
+        },
+        storage, activeSource: () => 'qq', accountKey: () => 'account-A',
+    });
+    sync.save(scene, [song(1, '红豆', '王菲')]);
+    await sync.settled();
+    sync.save(scene, [song(2, '阴天', '莫文蔚')]);
+    await sync.settled();
+    assert.equal(creates, 1);
+    assert.deepEqual(storage._map.get(PLAYLIST_IDS_KEY), { 'account-A': { [scene.id]: 'pending' } });
+});
+
+test('建单成功但记录 ID 失败时，预留标记阻止后续建单和曲目写入', async () => {
+    const scene = SCENES[0];
+    const storage = fakeStorage();
+    let writes = 0;
+    const set = storage.set;
+    storage.set = async (key, value) => {
+        if (++writes === 2) throw new Error('storage full');
+        return set(key, value);
+    };
+    let creates = 0;
+    let replaces = 0;
+    const sync = createScenePlaylistSync({
+        library: {
+            listPlaylists: async () => [],
+            createPlaylist: async title => { creates += 1; return { id: '789', title }; },
+            replacePlaylistSongs: async () => { replaces += 1; },
+        },
+        storage, activeSource: () => 'qq', accountKey: () => 'account-A',
+    });
+    sync.save(scene, [song(1, '红豆', '王菲')]);
+    await sync.settled();
+    sync.save(scene, [song(2, '阴天', '莫文蔚')]);
+    await sync.settled();
+    assert.equal(creates, 1);
+    assert.equal(replaces, 0);
+    assert.deepEqual(storage._map.get(PLAYLIST_IDS_KEY), { 'account-A': { [scene.id]: 'pending' } });
 });
 
 test('账户切换或停用后不再触碰另一个 QQ 账号的同 ID 歌单', async () => {
@@ -729,7 +778,7 @@ test('账户切换或停用后不再触碰另一个 QQ 账号的同 ID 歌单', 
     const writes = [];
     const library = {
         listPlaylists: async () => [{ id: 'owned-id', title: playlistTitle(scene) }],
-        createPlaylist: async title => { writes.push('create'); return { id: 'new-id', title }; },
+        createPlaylist: async title => { writes.push('create'); return { id: '456', title }; },
         replacePlaylistSongs: async id => { writes.push(`replace:${id}`); },
         getPlaylistTracks: async id => { writes.push(`read:${id}`); return []; },
     };
@@ -739,12 +788,12 @@ test('账户切换或停用后不再触碰另一个 QQ 账号的同 ID 歌单', 
     await sync.settled();
     assert.deepEqual(storage._map.get(PLAYLIST_IDS_KEY)['account-A'], { [scene.id]: 'owned-id' });
     assert.equal(writes[0], 'create');
-    assert.equal(writes[1], 'replace:new-id');
+    assert.equal(writes[1], 'replace:456');
     account = 'account-A';
     sync.dispose();
     sync.save(scene, [song(2, '阴天', '莫文蔚')]);
     await sync.settled();
-    assert.deepEqual(writes, ['create', 'replace:new-id']);
+    assert.deepEqual(writes, ['create', 'replace:456']);
 });
 
 test('歌单异步查找期间切换活跃音源，不在别的平台建单或污染 QQ 记录', async () => {
@@ -769,6 +818,61 @@ test('歌单异步查找期间切换活跃音源，不在别的平台建单或�
     await sync.settled();
     assert.deepEqual(writes, []);
     assert.equal(storage._map.has(PLAYLIST_IDS_KEY), false);
+});
+
+test('建单请求在途切换音源或 QQ 账号，不记录跨账户 ID，也不写歌曲', async () => {
+    const scene = SCENES[0];
+    for (const changed of ['source', 'account']) {
+        const storage = fakeStorage();
+        let source = 'qq';
+        let account = 'account-A';
+        const writes = [];
+        const sync = createScenePlaylistSync({
+            storage, activeSource: () => source, accountKey: () => account,
+            library: {
+                listPlaylists: async () => [],
+                createPlaylist: async title => {
+                    if (changed === 'source') source = 'netease';
+                    else account = 'account-B';
+                    writes.push('create');
+                    return { id: '789', title };
+                },
+                replacePlaylistSongs: async () => { writes.push('replace'); },
+            },
+        });
+        sync.save(scene, [song(1, '红豆', '王菲')]);
+        await sync.settled();
+        assert.deepEqual(writes, ['create']);
+        assert.deepEqual(storage._map.get(PLAYLIST_IDS_KEY), { 'account-A': { [scene.id]: 'pending' } });
+    }
+});
+
+test('歌单 bridge 谓词同步拒绝时仅记日志，不会把开播后的队列重跑兜底', async () => {
+    const playback = fakePlayback();
+    const warns = [];
+    const sync = createScenePlaylistSync({
+        activeSource: () => 'qq',
+        accountKey: () => { throw new Error('account-unavailable-in-export-context'); },
+        storage: fakeStorage(),
+        log: { warn: (...args) => warns.push(args) },
+        library: { createPlaylist: async () => { assert.fail('unexpected playlist mutation'); } },
+    });
+    const omni = makeOmniFor({
+        红豆: [song(1, '红豆', '王菲')],
+        阴天: [song(2, '阴天', '莫文蔚')],
+        遇见: [song(3, '遇见', '孙燕姿')],
+    });
+    const { deps, record } = makeDeps({
+        omni, playback,
+        fetch: async () => llmResponse([
+            { title: '红豆', artist: '王菲' }, { title: '阴天', artist: '莫文蔚' }, { title: '遇见', artist: '孙燕姿' },
+        ]),
+    });
+    const radio = createRadio({ ...deps, playlistSync: sync });
+    assert.equal(await radio.runScene('work-morning'), 'ok');
+    assert.equal(playback._calls.replace.length, 1);
+    assert.equal(warns.length, 1);
+    assert.ok(record.toasts.every(toast => !toast.message.includes('生成失败')));
 });
 
 test('失败链：已记录的场景歌单先于 v1 快照，旧链在歌单不可用时不变', async () => {
