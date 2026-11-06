@@ -86,6 +86,7 @@ export const MACHI_SCENE_LABEL_KEYS: Record<MachiTuning['scene'], string> = {
     konbini: 'options.machiSceneKonbini',
     station: 'options.machiSceneStation',
     kowloon: 'options.machiSceneKowloon',
+    recordstore: 'options.machiSceneRecordstore',
 };
 
 export const MACHI_TIME_LABEL_KEYS: Record<MachiTimeOfDay, string> = {
@@ -140,6 +141,17 @@ const SCENE_GLYPHS: Record<MachiTuning['scene'], React.ReactNode> = {
             <path d="M3 20V9h5v11M8 20V5h6v15M14 20v-8h6v8" />
             <path d="M11 5V2.5M9.5 3.5h3" opacity="0.6" />
             <path d="M14 7h1M15 6h2.5v4.5H15z" opacity="0.7" />
+            <path d="M3 20h18" />
+        </>
+    ),
+    // 深夜唱片店：一间小店、店角一块竖招牌、店里一张黑胶
+    recordstore: (
+        <>
+            <path d="M4 20V10h12v10" />
+            <path d="M4 10l1.2-2.5h9.6L16 10" opacity="0.6" />
+            <circle cx="10" cy="15" r="2.6" />
+            <circle cx="10" cy="15" r="0.7" opacity="0.6" />
+            <path d="M17.5 8v8M17.5 8h3v5h-3" opacity="0.7" />
             <path d="M3 20h18" />
         </>
     ),

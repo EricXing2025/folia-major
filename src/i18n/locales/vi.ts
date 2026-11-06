@@ -3099,6 +3099,7 @@ export default {
     "machiSceneKonbini": "Konbini",
     "machiSceneStation": "Trạm xăng",
     "machiSceneKowloon": "Quán bar Cửu Long Trại Thành",
+    "machiSceneRecordstore": "Tiệm đĩa nửa đêm",
     "machiSkySection": "Thời gian và thời tiết",
     "machiTimeOfDay": "Thời gian",
     "machiTimeOfDayHint": "Tự động theo đồng hồ của bạn: ban ngày, hoàng hôn hoặc ban đêm.",

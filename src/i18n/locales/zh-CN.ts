@@ -3100,6 +3100,7 @@ export default {
     "machiSceneKonbini": "便利店",
     "machiSceneStation": "加油站",
     "machiSceneKowloon": "城寨酒吧",
+    "machiSceneRecordstore": "深夜唱片店",
     "machiSkySection": "时间与天气",
     "machiTimeOfDay": "时间",
     "machiTimeOfDayHint": "自动：跟本地时间走，白天、黄昏或夜里。",

@@ -3100,6 +3100,7 @@ export default {
     "machiSceneKonbini": "Konbini",
     "machiSceneStation": "Gas station",
     "machiSceneKowloon": "Walled City bar",
+    "machiSceneRecordstore": "Midnight Record Store",
     "machiSkySection": "Time and weather",
     "machiTimeOfDay": "Time of day",
     "machiTimeOfDayHint": "Auto follows your local clock: day, dusk or night.",

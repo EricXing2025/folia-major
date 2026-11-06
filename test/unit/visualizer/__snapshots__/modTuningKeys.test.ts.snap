@@ -401,6 +401,7 @@ exports[`mod tuning keys > are pinned, so a renamed or dropped key is a visible 
         "konbini",
         "station",
         "kowloon",
+        "recordstore",
       ],
       "type": "choice",
     },
