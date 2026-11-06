@@ -80,6 +80,14 @@ export const NEON = {
     azimuth: 45 * DEG,
 } as const;
 
+/** 右面实墙上的横式英文霓虹（青色 MIDNIGHT RECORDS）：贴右面后段实墙正中，两端与上沿留边（LED 跑马灯所在的店招带之下）。 */
+export const WALL_NEON = {
+    z0: STORE.z0 + 0.15,
+    z1: STORE.rightGlassEnd - 0.15,
+    y0: 1.7,
+    y1: 2.4,
+} as const;
+
 /** 默认视角：从前右斜俯视（方位角按 three 的球坐标，从 +z 转向 +x）；整座底座框进去是缩放 1，默认再拉近一些。 */
 export const RECORDSTORE_VIEW = {
     azimuth: 45 * DEG,

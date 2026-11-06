@@ -27,7 +27,7 @@ import { buildRecordstoreStore } from './store';
 // src/components/visualizer/machi/scenes/recordstore/recordstoreScene.ts
 // 深夜唱片店街角：与便利店同款的十字路口（两条路在前右角相交、店占后左象限），墨绿的店身、整面落地玻璃透出
 // 暖琥珀光；店内是成排黑胶货架、翻唱片的木箱、唱片封面墙、试听角与柜台。屋顶一块横屏逐字点亮当前行，
-// 店角竖挂霓虹「深夜唱片 / MIDNIGHT RECORDS」（粉青双色）、店招写曲名、橱窗海报写歌手、门口のぼり旗写
+// 店角竖挂霓虹「深夜唱片 / MIDNIGHT RECORDS」（粉青双色）、右面实墙横式青色霓虹 MIDNIGHT RECORDS、店招写曲名、橱窗海报写歌手、门口のぼり旗写
 // 「レコード」、A 字牌与一箱特价黑胶。会动的：段落开头自动门开合、试听角唱盘旋转、空调风扇、偶尔开过的车、
 // 旗、井盖和外机的白气、路灯光柱。按歌变的：唱片配色与摆放、海报版式、自行车、风向、水洼、开门节奏
 // （recordstoreSeed.ts）。
@@ -206,6 +206,7 @@ class RecordstoreScene implements MachiScene {
             boardFace: store.boardFace,
             fasciaFaces: store.fasciaFaces,
             neonFaces: store.neonFaces,
+            wallNeonFace: store.wallNeonFace,
             aFrameFaces: props.aFrameFaces,
             crateTagFaces: props.crateTagFaces,
         });

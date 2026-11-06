@@ -18,18 +18,20 @@ import {
     paintRecordstoreFascia,
     paintRecordstoreNeon,
     paintRecordstorePoster,
+    paintRecordstoreWallNeon,
 } from './recordstoreSignPaint';
 
 // src/components/visualizer/machi/scenes/recordstore/recordstoreSigns.ts
 // 唱片店的招牌：屋顶歌词屏（engine/lyricScreen.ts，当前行逐字点亮）、右面店招上的 LED 跑马灯（下一句 / 译文）、
-// 前面店招（黑胶 logo + 曲名当店名）、店角竖挂霓虹（深夜唱片 / MIDNIGHT RECORDS，粉青双色）、橱窗海报（歌手）、
-// 门口 A 字立牌（OPEN / 营业中）、特价箱价签。颜色、图标、字体都从主题来；牌面贴图在换行 / 换歌 / 换主题时重画，
-// 每帧只改 uniform 与材质亮度。
+// 前面店招（黑胶 logo + 曲名当店名）、店角竖挂霓虹（深夜唱片 / MIDNIGHT RECORDS，粉青双色）、右面实墙上的
+// 横式英文霓虹（青色 MIDNIGHT RECORDS）、橱窗海报（歌手）、门口 A 字立牌（OPEN / 营业中）、特价箱价签。
+// 颜色、图标、字体都从主题来；牌面贴图在换行 / 换歌 / 换主题时重画，每帧只改 uniform 与材质亮度。
 
 export interface RecordstoreSignPlacements {
     boardFace: { position: THREE.Vector3; rotationY: number };
     fasciaFaces: { position: THREE.Vector3; rotationY: number; width: number; height: number }[];
     neonFaces: { position: THREE.Vector3; rotationY: number; width: number; height: number }[];
+    wallNeonFace: { position: THREE.Vector3; rotationY: number; width: number; height: number };
     aFrameFaces: (RecordstorePlacement & { lean?: number })[];
     crateTagFaces: RecordstorePlacement[];
 }
@@ -78,6 +80,7 @@ export class RecordstoreSigns {
     private readonly statics: { canvas: HTMLCanvasElement; texture: THREE.CanvasTexture; material: THREE.MeshBasicMaterial | THREE.MeshToonMaterial; level: number }[] = [];
     private readonly fascia;
     private readonly neonSign;
+    private readonly wallNeon;
     private readonly posters;
     private readonly aFrame;
     private readonly crateTag;
@@ -105,6 +108,11 @@ export class RecordstoreSigns {
             this.group.add(placedPlane(sign.material, face.width, face.height, face.position, face.rotationY, `NeonSign/face${index}`));
             return sign;
         });
+
+        // 右面实墙上的横式英文霓虹：一幅字面（MIDNIGHT RECORDS）。
+        const wallNeonFace = placements.wallNeonFace;
+        this.wallNeon = this.staticSign(materials, 1024, Math.round(1024 * wallNeonFace.height / wallNeonFace.width), 1.5, 'additive');
+        this.group.add(placedPlane(this.wallNeon.material, wallNeonFace.width, wallNeonFace.height, wallNeonFace.position, wallNeonFace.rotationY, 'WallNeon/face'));
 
         // 橱窗海报：前面左段玻璃后面两张。
         this.posters = [0, 1].map(index => {
@@ -163,6 +171,10 @@ export class RecordstoreSigns {
             pink: palette.art.neonPink ?? palette.neon,
             cyan: palette.art.neonCyan ?? '#6fd9e8',
         }));
+        paintRecordstoreWallNeon(this.wallNeon.canvas, {
+            font,
+            cyan: palette.art.neonCyan ?? '#6fd9e8',
+        });
         // 两张橱窗海报：歌手（版式按歌变）与主题 / 专辑。
         paintRecordstorePoster(this.posters[0]!.canvas, {
             font,
@@ -237,6 +249,7 @@ export class RecordstoreSigns {
         this.neonSign.forEach((sign, index) => {
             this.setLevel(sign, sign.level * neonPulse * flicker * machiNeonGroup(beat, index));
         });
+        this.setLevel(this.wallNeon, this.wallNeon.level * neonPulse * flicker * machiNeonGroup(beat, 2));
     }
 
     private setLevel(sign: { material: THREE.Material }, level: number) {

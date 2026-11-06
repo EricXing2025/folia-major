@@ -1,14 +1,14 @@
 import * as THREE from 'three';
 import type { MachiMaterials } from '../../engine/materials';
 import { MACHI_REFLECT_LAYER } from '../../engine/fx/reflection';
-import { BOARD, DOOR, FASCIA, LEVEL, NEON, STORE } from './layout';
+import { BOARD, DOOR, FASCIA, LEVEL, NEON, STORE, WALL_NEON } from './layout';
 import { boxSpan, cylinderAt, group, mesh, roundedBox, tubeBetween } from '../../engine/geometry/shapes';
 
 // src/components/visualizer/machi/scenes/recordstore/store.ts
 // 唱片店 Group "Store"：地坪、墨绿实墙（外墙 + 内衬）、前右两面落地玻璃与窗框、对开自动门（两扇，会动）、
 // 屋顶与女儿墙、绕一圈的店招带（底板 + 黄铜细条）、落水管、屋顶的歌词屏（两根立柱 + 一块横屏，屏面正对默认镜头），
 // 店角竖挂的霓虹招牌（深色机箱 + 两条支架臂，两面同一幅字面）。
-// 招牌的字面（店招、歌词屏、竖霓虹、橱窗海报）只留出位置，贴图由 recordstoreSigns 挂上。
+// 招牌的字面（店招、歌词屏、竖霓虹、右墙英文霓虹、橱窗海报）只留出位置，贴图由 recordstoreSigns 挂上。
 
 export interface RecordstoreStoreParts {
     group: THREE.Group;
@@ -20,6 +20,8 @@ export interface RecordstoreStoreParts {
     fasciaFaces: { position: THREE.Vector3; rotationY: number; width: number; height: number }[];
     /** 竖霓虹的两面（各自一幅字面，背面不会反字）。 */
     neonFaces: { position: THREE.Vector3; rotationY: number; width: number; height: number }[];
+    /** 右面实墙上横式英文霓虹的字面（中心、朝向、宽高）。 */
+    wallNeonFace: { position: THREE.Vector3; rotationY: number; width: number; height: number };
 }
 
 const { x0, x1, z0, z1, wall } = STORE;
@@ -284,5 +286,12 @@ export const buildRecordstoreStore = (materials: MachiMaterials, interior: THREE
         boardFace: board.face,
         fasciaFaces: fascia.faces,
         neonFaces: neon.faces,
+        // 右面后段实墙的正中，贴着墙面朝 +x。
+        wallNeonFace: {
+            position: new THREE.Vector3(x1 + 0.006, (WALL_NEON.y0 + WALL_NEON.y1) / 2, (WALL_NEON.z0 + WALL_NEON.z1) / 2),
+            rotationY: Math.PI / 2,
+            width: WALL_NEON.z1 - WALL_NEON.z0,
+            height: WALL_NEON.y1 - WALL_NEON.y0,
+        },
     };
 };

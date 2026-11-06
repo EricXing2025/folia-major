@@ -3,9 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { MACHI_BASE } from '@/components/visualizer/machi/engine/geometry/plinth';
 import type { MachiMaterials } from '@/components/visualizer/machi/engine/materials';
 import { buildRecordstoreInterior } from '@/components/visualizer/machi/scenes/recordstore/interior';
-import { BASE, BOARD, DOOR, LEVEL, NEON, PROPS, RECORDSTORE_VIEW, ROAD, STORE } from '@/components/visualizer/machi/scenes/recordstore/layout';
+import { BASE, BOARD, DOOR, FASCIA, LEVEL, NEON, PROPS, RECORDSTORE_VIEW, ROAD, STORE, WALL_NEON } from '@/components/visualizer/machi/scenes/recordstore/layout';
 import { buildRecordstoreSongProps } from '@/components/visualizer/machi/scenes/recordstore/props';
 import { buildRecordstoreDoorEvents, RECORDSTORE_DOOR_TIMING, resolveRecordstoreDoorOpenness } from '@/components/visualizer/machi/scenes/recordstore/recordstoreDoor';
+import { buildRecordstoreStore } from '@/components/visualizer/machi/scenes/recordstore/store';
 import { resolveRecordstoreVariation } from '@/components/visualizer/machi/scenes/recordstore/recordstoreSeed';
 import type { Line } from '@/types';
 
@@ -153,6 +154,26 @@ describe('recordstore layout', () => {
         expect(NEON.y0 + NEON.height).toBeLessThan(STORE.parapetTop + 0.4);
         expect(Math.abs(NEON.cx)).toBeLessThan(half);
         expect(Math.abs(NEON.cz)).toBeLessThan(half);
+    });
+
+    it('hangs the English neon on the right solid wall under the fascia band', () => {
+        // 横式英文霓虹贴在右面后段实墙里（不压到玻璃段），在店招带下沿之下。
+        expect(WALL_NEON.z0).toBeGreaterThanOrEqual(STORE.z0);
+        expect(WALL_NEON.z1).toBeLessThanOrEqual(STORE.rightGlassEnd);
+        expect(WALL_NEON.y1).toBeLessThanOrEqual(FASCIA.y0);
+        expect(WALL_NEON.y0).toBeGreaterThan(LEVEL.lot);
+        expect(WALL_NEON.z1).toBeGreaterThan(WALL_NEON.z0);
+    });
+
+    it('faces the English neon face out of the right wall', () => {
+        const face = buildRecordstoreStore(materials, new THREE.Group()).wallNeonFace;
+        // 面贴右墙外皮朝 +x（与右面玻璃、LED 字面同向），宽高就是实墙上留的那块。
+        expect(face.rotationY).toBeCloseTo(Math.PI / 2, 5);
+        expect(face.position.x).toBeCloseTo(STORE.x1 + 0.006, 5);
+        expect(face.position.y).toBeCloseTo((WALL_NEON.y0 + WALL_NEON.y1) / 2, 5);
+        expect(face.position.z).toBeCloseTo((WALL_NEON.z0 + WALL_NEON.z1) / 2, 5);
+        expect(face.width).toBeCloseTo(WALL_NEON.z1 - WALL_NEON.z0, 5);
+        expect(face.height).toBeCloseTo(WALL_NEON.y1 - WALL_NEON.y0, 5);
     });
 });
 

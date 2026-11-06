@@ -2,7 +2,8 @@ import { context2d, drawIcon, fitFont, fontSpec, strokeNeonText, wrapText, type 
 
 // src/components/visualizer/machi/scenes/recordstore/recordstoreSignPaint.ts
 // 唱片店各块招牌的 Canvas 2D 画法：店招（黑胶 logo + 店名）、店角竖挂霓虹（深夜唱片 / MIDNIGHT RECORDS，
-// 粉青双色灯管）、橱窗海报（歌手）、门口 A 字立牌（OPEN / 营业中）、特价箱的小价签。
+// 粉青双色灯管）、右墙横式英文霓虹（青色 MIDNIGHT RECORDS）、橱窗海报（歌手）、门口 A 字立牌
+// （OPEN / 营业中）、特价箱的小价签。
 // 共用的字体、图标、缩字、折行、灯管描边在 engine/signRaster.ts。
 
 /** 一张黑胶：外圈、几道纹、中心标签。 */
@@ -120,6 +121,40 @@ export const paintRecordstoreNeon = (canvas: HTMLCanvasElement, paint: Recordsto
         context.restore();
         strokeNeonText(context, word, width / 2, cy, paint.cyan, wordPx * 0.08);
     });
+};
+
+export interface RecordstoreWallNeonPaint {
+    font: MachiFont;
+    cyan: string;
+}
+
+/** 右墙横式英文霓虹：透明底，一圈青色灯管框，中间一行青色灯管字 MIDNIGHT RECORDS（与竖霓虹同画法）。 */
+export const paintRecordstoreWallNeon = (canvas: HTMLCanvasElement, paint: RecordstoreWallNeonPaint) => {
+    const context = context2d(canvas);
+    const { width, height } = canvas;
+    context.clearRect(0, 0, width, height);
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    const inset = height * 0.12;
+    context.save();
+    context.shadowColor = paint.cyan;
+    context.shadowBlur = height * 0.07;
+    context.strokeStyle = paint.cyan;
+    context.lineWidth = Math.max(2, height * 0.035);
+    context.beginPath();
+    context.roundRect(inset, inset, width - inset * 2, height - inset * 2, height * 0.16);
+    context.stroke();
+    context.restore();
+    const text = 'MIDNIGHT RECORDS';
+    const px = fitFont(context, { ...paint.font, weight: 800 }, text, width - inset * 6, height * 0.42);
+    const cy = height * 0.52;
+    context.save();
+    context.shadowColor = paint.cyan;
+    context.shadowBlur = px * 0.3;
+    context.fillStyle = paint.cyan;
+    context.fillText(text, width / 2, cy);
+    context.restore();
+    strokeNeonText(context, text, width / 2, cy, paint.cyan, px * 0.08);
 };
 
 export interface RecordstorePosterPaint {
