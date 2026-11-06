@@ -3,8 +3,8 @@
 // 镜头（默认构图，或固定在自己调的视角上，每个场景各存一份；可以开着缓慢的运镜，快慢可调）与景深（光圈、强弱、清晰范围、移轴、对焦在哪），以及画质（分辨率、抗锯齿、阴影、
 // 倒影、辉光、自动降级；面板上的高 / 平衡 / 低只是几套细项，不单独存）。
 
-/** 场景：便利店街角、加油站停车场、城寨酒吧、深夜唱片店。 */
-export const MACHI_SCENE_IDS = ['konbini', 'station', 'kowloon', 'recordstore'] as const;
+/** 场景：便利店街角、加油站停车场、城寨酒吧、深夜唱片店、烛影长安。 */
+export const MACHI_SCENE_IDS = ['konbini', 'station', 'kowloon', 'recordstore', 'zhuying'] as const;
 export type MachiSceneId = typeof MACHI_SCENE_IDS[number];
 
 export const MACHI_TIMES_OF_DAY = ['auto', 'day', 'dusk', 'night'] as const;
@@ -140,6 +140,7 @@ export const DEFAULT_MACHI_VIEWS: Record<MachiSceneId, MachiCameraView> = {
     station: DEFAULT_MACHI_VIEW,
     kowloon: DEFAULT_MACHI_VIEW,
     recordstore: DEFAULT_MACHI_VIEW,
+    zhuying: DEFAULT_MACHI_VIEW,
 };
 
 export const DEFAULT_MACHI_TUNING: MachiTuning = {
