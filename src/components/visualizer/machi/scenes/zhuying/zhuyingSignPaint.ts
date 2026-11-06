@@ -233,25 +233,25 @@ export const paintZhuyingRing = (canvas: HTMLCanvasElement, paint: ZhuyingRingPa
     context.textAlign = 'center';
     context.textBaseline = 'middle';
     const name = paint.artist || 'CHANG\'AN';
-    const px = fitFont(context, { ...paint.font, weight: 800 }, name, width * 0.62, width * 0.14);
+    const px = fitFont(context, { ...paint.font, weight: 800 }, name, width * 0.74, width * 0.21);
     context.save();
     context.shadowColor = paint.text;
-    context.shadowBlur = px * 0.3;
+    context.shadowBlur = px * 0.34;
     context.fillStyle = paint.text;
-    context.fillText(name, cx, cy - radius * 0.18);
+    context.fillText(name, cx, cy - radius * 0.16);
     context.restore();
-    strokeNeonText(context, name, cx, cy - radius * 0.18, paint.text, px * 0.08);
+    strokeNeonText(context, name, cx, cy - radius * 0.16, paint.text, px * 0.16);
 
-    // EQ 条基线与两侧的刻度小点（会动的 EQ 柱盖在它上面）。
-    const eqY = cy + radius * 0.42;
+    // EQ 条基线与两侧的刻度小点（会动的 EQ 柱盖在它上面，压在环内下三分之一）。
+    const eqY = cy + radius * 0.48;
     context.strokeStyle = paint.dim;
     context.lineWidth = Math.max(1, width * 0.008);
     context.beginPath();
-    context.moveTo(cx - radius * 0.5, eqY);
-    context.lineTo(cx + radius * 0.5, eqY);
+    context.moveTo(cx - radius * 0.56, eqY);
+    context.lineTo(cx + radius * 0.56, eqY);
     context.stroke();
     context.fillStyle = paint.dim;
-    [-0.55, 0.55].forEach(side => {
+    [-0.62, 0.62].forEach(side => {
         context.beginPath();
         context.arc(cx + radius * side, eqY, width * 0.012, 0, Math.PI * 2);
         context.fill();

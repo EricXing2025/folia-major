@@ -92,9 +92,15 @@ describe('zhuying layout', () => {
         expect(SKYLINE.pagoda.x).toBeGreaterThan(WINDOW.x0);
         expect(SKYLINE.pagoda.x).toBeLessThan(WINDOW.x1);
         expect(SKYLINE.pagoda.z).toBeLessThan(ROOM.z0);
-        // 塔在窗里占住上半段（塔高定得让塔尖基本不被窗头裁掉：塔深 1.5m，俯角下视线过窗头再落约 0.9m）。
-        expect(LEVEL.street + SKYLINE.pagoda.height).toBeGreaterThan(WINDOW.sill + (WINDOW.head - WINDOW.sill) * 0.5);
-        expect(LEVEL.street + SKYLINE.pagoda.height + 0.2).toBeLessThan(WINDOW.head - 0.7);
+        // 塔尖要落在歌词条之下的亮窗格里：正交镜头把窗外景物沿 +x、+y 抬上窗面，
+        // 抬升量 = tan(俯角) / cos(方位角) × 塔到玻璃的距离（方位角 45°，x 向位移量等于 z 向距离）。
+        const depth = WINDOW.z - SKYLINE.pagoda.z;
+        const crown = LEVEL.street + SKYLINE.pagoda.height + (depth * Math.tan(ZHUYING_VIEW.elevation)) / Math.cos(ZHUYING_VIEW.azimuth);
+        expect(crown).toBeGreaterThan(WINDOW.sill + (WINDOW.head - WINDOW.sill) * 0.5);
+        expect(crown).toBeLessThan(LYRIC.y0);
+        const xProjected = SKYLINE.pagoda.x + depth * Math.tan(ZHUYING_VIEW.azimuth);
+        expect(xProjected).toBeGreaterThan(WINDOW.x0);
+        expect(xProjected).toBeLessThan(WINDOW.x1);
         // 城楼在窗左端外（台身可以探进窗左一小段，反正隔着墙看）。
         expect(SKYLINE.gate.x0).toBeLessThan(WINDOW.x0);
         expect(SKYLINE.gate.z0).toBeLessThan(ROOM.z0);
@@ -204,9 +210,9 @@ describe('zhuying skyline', () => {
             expect(roof.y).toBeGreaterThan(LEVEL.street);
             expect(roof.y).toBeLessThan(ROOM.wallHeight + 0.5);
         });
-        // 塔是最高的那座（雨先落在它头上）。
-        expect(skyline.roofs.pagoda.y).toBeGreaterThan(skyline.roofs.mid.y);
+        // 塔从近檐排里升起来：遮挡面高过近檐（中排剪影在塔身后，不参与比较）。
         expect(skyline.roofs.pagoda.y).toBeGreaterThan(skyline.roofs.near.y);
+        expect(skyline.roofs.pagoda.y).toBeGreaterThan(skyline.roofs.surround[0]!.y);
     });
 
     it('keeps the street and lot surfaces dynamic so the engine can swap in wet materials', () => {

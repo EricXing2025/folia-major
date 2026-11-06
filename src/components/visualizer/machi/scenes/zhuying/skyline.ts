@@ -7,7 +7,8 @@ import type { ZhuyingVariation } from './zhuyingSeed';
 
 // src/components/visualizer/machi/scenes/zhuying/skyline.ts
 // 窗外的长安夜：后墙之外是一条湿街（引擎的湿地面），再往外由近到远几层剪影——一重近檐、一重带灯窗的唐风屋顶、
-// 右侧被灯光洗亮的大雁塔（七层，窗外唯一的暖色大块）、左端的城楼、最远的屋脊带；窗的上沿一角探进来一枝樱花。
+// 近檐排里被灯光洗亮的大雁塔（七层，窗外唯一的暖色大块，塔尖收在歌词条下的亮窗格里）、左端的城楼、
+// 最远的屋脊带；窗的上沿一角探进来一枝樱花。
 // 房前、右两侧的底座上再摆两簇矮檐，让书房像架在屋顶群之上。全是低模剪影，几何都进静态合批。
 
 export interface ZhuyingSkylineParts {
@@ -97,7 +98,8 @@ export const buildZhuyingSkyline = (materials: MachiMaterials, variation: Zhuyin
         }
     });
 
-    // 大雁塔：矮殿基座上七层收分的塔身，每层一道挑檐与一条灯缝，通身暖金（窗外的暖色大块只有它）。
+    // 大雁塔：矮殿基座上七层收分的塔身——泛光暖金的塔身、每层一道深色挑檐、每层前右两面各一孔拱洞亮窗
+    // （下宽上窄两级叠出拱顶），窗外唯一的暖色大块；架在近檐排里，剪影从檐口后升起来。
     const pagoda = SKYLINE.pagoda;
     parts.push(
         boxSpan(materials.toon('roofBody'), pagoda.x - 0.55, pagoda.x + 0.55, LEVEL.street, LEVEL.street + pagoda.base, pagoda.z - 0.3, pagoda.z + 0.3, { radius: 0.02, name: 'Pagoda/base' }),
@@ -109,9 +111,13 @@ export const buildZhuyingSkyline = (materials: MachiMaterials, variation: Zhuyin
         const y = LEVEL.street + pagoda.base + tierH * tier;
         const eaveY = y + tierH * 0.72;
         parts.push(
-            boxSpan(materials.toon('pagodaBody'), pagoda.x - half, pagoda.x + half, y, y + tierH, pagoda.z - half * 0.7, pagoda.z + half * 0.7, { radius: 0.008, name: 'Pagoda/tier' }),
+            boxSpan(materials.glow('pagodaBody'), pagoda.x - half, pagoda.x + half, y, y + tierH, pagoda.z - half * 0.7, pagoda.z + half * 0.7, { radius: 0.008, name: 'Pagoda/tier' }),
             boxSpan(materials.toon('pagodaRoof'), pagoda.x - half - 0.09, pagoda.x + half + 0.09, eaveY, eaveY + tierH * 0.18, pagoda.z - half * 0.7 - 0.09, pagoda.z + half * 0.7 + 0.09, { radius: 0.008, name: 'Pagoda/eave' }),
-            boxSpan(materials.glow('pagoda'), pagoda.x - half * 0.4, pagoda.x + half * 0.4, y + tierH * 0.3, y + tierH * 0.52, pagoda.z + half * 0.7, pagoda.z + half * 0.7 + 0.012, { radius: 0.003, name: 'Pagoda/slit' }),
+            // 拱洞亮窗：前面（+z）与右面（+x）各一孔，镜头两个面都看得到。
+            boxSpan(materials.glow('pagoda'), pagoda.x - half * 0.22, pagoda.x + half * 0.22, y + tierH * 0.26, y + tierH * 0.6, pagoda.z + half * 0.7, pagoda.z + half * 0.7 + 0.012, { radius: 0.003, name: 'Pagoda/niche' }),
+            boxSpan(materials.glow('pagoda'), pagoda.x - half * 0.13, pagoda.x + half * 0.13, y + tierH * 0.6, y + tierH * 0.82, pagoda.z + half * 0.7, pagoda.z + half * 0.7 + 0.012, { radius: 0.003, name: 'Pagoda/niche' }),
+            boxSpan(materials.glow('pagoda'), pagoda.x + half, pagoda.x + half + 0.012, y + tierH * 0.26, y + tierH * 0.6, pagoda.z - half * 0.16, pagoda.z + half * 0.16, { radius: 0.003, name: 'Pagoda/niche' }),
+            boxSpan(materials.glow('pagoda'), pagoda.x + half, pagoda.x + half + 0.012, y + tierH * 0.6, y + tierH * 0.82, pagoda.z - half * 0.09, pagoda.z + half * 0.09, { radius: 0.003, name: 'Pagoda/niche' }),
         );
     }
     // 塔刹。

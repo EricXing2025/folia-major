@@ -53,7 +53,6 @@ const ZHUYING_ART = {
     roofDark: '#1f242c',
     roofMid: '#333a44',
     roofFar: '#1a1e26',
-    pagodaBody: '#7a5a30',
     pagodaRoof: '#4a3a22',
     pagodaGlow: '#e8b45c',
     branch: '#3a2a24',
@@ -84,7 +83,8 @@ const ZHUYING_GLOWS: Record<string, MachiGlowSpec> = {
     shelfStrip: { key: 'interiorLight', level: 1.8 },
     lantern: { key: 'interiorLight', level: 1.6 },
     lampGlow: { key: 'interiorLight', level: 2.4 },
-    pagoda: { key: 'pagodaGlow', level: 1.6 },
+    pagoda: { key: 'pagodaGlow', level: 1.7 },
+    pagodaBody: { key: 'pagodaGlow', level: 0.55 },
     gateLamp: { key: 'interiorLight', level: 1.4 },
     cityWindow: { key: 'interiorLight', level: 0.55 },
     chartMark: { key: 'chartMark', level: 0.9 },
@@ -210,7 +210,7 @@ class ZhuyingScene implements MachiScene {
             drips: zhuyingDrips(context.song.seed),
             // 落进灯光里的雨丝被照亮：塔上的暖光、城楼檐下的灯、窗里泻出的灯光。
             glints: [
-                { position: new THREE.Vector3(SKYLINE.pagoda.x, 1.5, SKYLINE.pagoda.z + 0.3), radius: 1.4 },
+                { position: new THREE.Vector3(SKYLINE.pagoda.x, 1.0, SKYLINE.pagoda.z + 0.3), radius: 1.4 },
                 { position: new THREE.Vector3((SKYLINE.gate.x0 + SKYLINE.gate.x1) / 2, 0.9, SKYLINE.gate.z1 + 0.3), radius: 1.0 },
                 { position: new THREE.Vector3((WINDOW.x0 + WINDOW.x1) / 2, 1.6, WINDOW.z - 0.3), radius: 1.8 },
             ],
@@ -220,7 +220,7 @@ class ZhuyingScene implements MachiScene {
         this.framing = { points: framingPoints(), view: { ...ZHUYING_VIEW } };
         // 雾里的两处灯：屋里的暖光、塔上的暖光。
         this.glowA = new THREE.Vector4(desk.lampApex.x, desk.lampApex.y, desk.lampApex.z, 1.6);
-        this.glowB = new THREE.Vector4(SKYLINE.pagoda.x, 1.6, SKYLINE.pagoda.z + 0.3, 2.2);
+        this.glowB = new THREE.Vector4(SKYLINE.pagoda.x, 0.95, SKYLINE.pagoda.z + 0.3, 2.2);
         this.syncColors();
         context.invalidateShadows();
     }
@@ -253,6 +253,7 @@ class ZhuyingScene implements MachiScene {
         materials.setGlowLevel('lantern', interior);
         materials.setGlowLevel('lampGlow', interior * (0.9 + 0.1 * frame.flicker));
         materials.setGlowLevel('pagoda', night * (0.9 + 0.15 * beat.warm));
+        materials.setGlowLevel('pagodaBody', night * (0.85 + 0.15 * beat.warm));
         materials.setGlowLevel('gateLamp', (0.5 + 0.5 * look.streetLamps) * (0.85 + 0.15 * frame.flicker));
         materials.setGlowLevel('cityWindow', night * (0.75 + 0.25 * beat.warm));
         materials.setGlowLevel('chartMark', 0.65 + 0.35 * frame.audio * beat.neon);

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Line, Theme } from '../../../../../types';
+import { mixHexColors } from '../../../../../utils/themeColorMath';
 import { prepareWordColorMatchers } from '../../../wordColoring';
 import type { MachiSongContext } from '../../createMachiRuntime';
 import { machiNeonGroup, type MachiBeatFrame } from '../../engine/beatFx';
@@ -234,9 +235,9 @@ export class ZhuyingSigns {
         // 环是 512px 画到 0.72m 面上：EQ 排按画出来的半径与基线换算，盖在它上面才准。
         const ringScale = (RING.radius * 2) / this.ring.canvas.width;
         this.eqBase = {
-            x0: -ringMarks.radius * 0.5 * ringScale,
-            step: (ringMarks.radius * ringScale) / 8,
-            width: Math.max(0.016, ringMarks.radius * 0.09 * ringScale),
+            x0: -ringMarks.radius * 0.62 * ringScale,
+            step: (ringMarks.radius * 1.24 * ringScale) / 8,
+            width: Math.max(0.016, ringMarks.radius * 0.1 * ringScale),
             baseline: -(ringMarks.eqY - ringMarks.cy) * ringScale,
         };
         paintZhuyingKline(this.kline.canvas, {
@@ -246,7 +247,12 @@ export class ZhuyingSigns {
         });
         this.statics.forEach(sign => { sign.texture.needsUpdate = true; });
         this.screen.setContent({
-            palette,
+            // 窗上这条点阵带隔着雨痕看：压暗底色与未唱字，唱到的字才读得出来。
+            palette: {
+                ...palette,
+                boardBase: mixHexColors(palette.boardBase, '#000000', palette.boardIsLight ? 0 : 0.45),
+                boardUnlit: mixHexColors(palette.boardUnlit, '#000000', palette.boardIsLight ? 0.2 : 0.4),
+            },
             font,
             measure: createMachiMeasure(font),
             matchers: prepareWordColorMatchers(content.theme.wordColors),
@@ -290,7 +296,7 @@ export class ZhuyingSigns {
         for (let index = 0; index < EQ_BARS; index += 1) {
             const groupLevel = machiNeonGroup(beat, index % 3);
             const level = frame.staticMode ? 0.55 : Math.min(1, Math.max(0.06, 0.18 + frame.audio * 0.55 + (groupLevel - 0.4) * 0.75));
-            const h = 0.03 + level * (RING.radius * 0.5);
+            const h = 0.015 + level * (RING.radius * 0.24);
             this.matrix.makeScale(eq.width, h, 1).setPosition(eq.x0 + eq.step * index, eq.baseline + h / 2, 0);
             this.eqBars.setMatrixAt(index, this.matrix);
         }

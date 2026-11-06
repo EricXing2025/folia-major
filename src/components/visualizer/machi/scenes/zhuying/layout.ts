@@ -43,11 +43,11 @@ export const WINDOW = {
 export const LYRIC = {
     x0: WINDOW.x0 + 0.15,
     x1: WINDOW.x1 - 0.25,
-    y0: 1.94,
-    y1: 2.38,
+    y0: 1.8,
+    y1: 2.42,
     z: ROOM.backInner + 0.02,
     width: WINDOW.x1 - 0.25 - (WINDOW.x0 + 0.15),
-    height: 2.38 - 1.94,
+    height: 2.42 - 1.8,
 } as const;
 
 /** 后墙右段实墙上的环形灯：灯环居中，环里写歌手名霓虹与一排 EQ 条。 */
@@ -121,8 +121,8 @@ export const SKYLINE = {
     midZ0: -5.55,
     midZ1: -5.0,
     farZ: -5.92,
-    /** 大雁塔：七层，落在一座矮殿基座上；透过窗看是右偏的一盏暖金剪影。 */
-    pagoda: { x: -2.8, z: -5.72, base: 0.32, height: 1.75 },
+    /** 大雁塔：七层，落在一座矮殿基座上；架在近檐排里、透过窗看是偏右中的一盏暖金剪影。 */
+    pagoda: { x: -1.9, z: -4.85, base: 0.3, height: 1.24 },
     /** 城楼：窗左端外的一座台门与重檐楼。 */
     gate: { x0: -5.95, x1: -4.9, z0: -5.6, z1: -5.15 },
 } as const;
