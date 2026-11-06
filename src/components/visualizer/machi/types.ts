@@ -4,7 +4,8 @@
 // 倒影、辉光、自动降级；面板上的高 / 平衡 / 低只是几套细项，不单独存）。
 
 /** 场景：便利店街角、加油站停车场、城寨酒吧、深夜唱片店、长安夜市。 */
-export const MACHI_SCENE_IDS = ['konbini', 'station', 'kowloon', 'recordstore', 'changan'] as const;
+export const MACHI_SCENE_IDS = ['konbini', 'station', 'kowloon', 'recordstore', 'changan', 'zhuying'] as const;
+/** 场景：便利店街角、加油站停车场、城寨酒吧、深夜唱片店、烛影长安。 */
 export type MachiSceneId = typeof MACHI_SCENE_IDS[number];
 
 export const MACHI_TIMES_OF_DAY = ['auto', 'day', 'dusk', 'night'] as const;
@@ -141,6 +142,7 @@ export const DEFAULT_MACHI_VIEWS: Record<MachiSceneId, MachiCameraView> = {
     kowloon: DEFAULT_MACHI_VIEW,
     recordstore: DEFAULT_MACHI_VIEW,
     changan: DEFAULT_MACHI_VIEW,
+    zhuying: DEFAULT_MACHI_VIEW,
 };
 
 export const DEFAULT_MACHI_TUNING: MachiTuning = {
