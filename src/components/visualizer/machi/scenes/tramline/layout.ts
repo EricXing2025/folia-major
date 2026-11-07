@@ -53,14 +53,15 @@ export const BUILDING = {
     win3: { y0: 4.18, y1: 5.0 },
 };
 
-/** 转角歌词灯箱：挂在街角、面朝着默认镜头（45°），底沿压在二层窗台上沿下面、顶沿到三层窗底。 */
+/** 转角歌词灯箱：挂在街角、面朝着默认镜头（45°）。港式招牌灯箱的比例——比楼面窄、贴着雨篷顶，
+ * 底沿在门头雨篷上沿附近、顶沿不过三层窗台，给二层的窗留出来。 */
 export const BOARD = {
     cx: -1.28,
     cz: -1.38,
-    cy: 3.4,
-    width: 3.6,
-    height: 1.68,
-    depth: 0.24,
+    cy: 3.3,
+    width: 2.7,
+    height: 1.22,
+    depth: 0.18,
     azimuth: 45 * DEG,
 };
 
@@ -133,22 +134,22 @@ export const TRAM_POLES = {
     armY: 4.28,
 };
 
-/** 电车：长沿 x、宽沿 z，在 near 轨上往 +x 开（香港靠左行驶）。 */
+/** 电车：长沿 x、宽沿 z，在 near 轨上往 +x 开（香港靠左行驶）。窄车身拉长一点更像叮叮的修长比例。 */
 export const TRAM = {
     z: TRACK.near,
-    length: 3.7,
-    width: 1.32,
-    roofY: 2.86,
+    length: 4.15,
+    width: 1.26,
+    roofY: 2.8,
     chassisTop: 0.55,
     lowerTop: 1.78,
     bandTop: 2.05,
-    upperTop: 2.62,
+    upperTop: 2.6,
     wheelY: 0.22,
     wheelRadius: 0.17,
     /** 受电杆向后仰（朝 -x），接触线高。 */
     poleY: TRACK.wireY - 0.02,
-    /** 一圈的行程：从底座东外到西外。 */
-    span: 16,
+    /** 一圈的行程：从底座东外到西外（span/2 减半个车长还要大于底座半宽，车尾才真正出画）。 */
+    span: 17,
     period: 18,
     /** 车侧广告牌（下层窗与上层窗之间的腰板，朝 +z）。 */
     ad: { y0: 1.52, y1: 2.02, width: 2.55 },
@@ -164,9 +165,9 @@ export const PROPS = {
     drain: { x: -0.9, z: 0.82 },
 };
 
-/** 默认视角：与街角场景同一套，从正前偏右 45° 斜俯视。 */
+/** 默认视角：与街角场景同一套，从正前偏右 45° 斜俯视。稍压低、稍拉远，底座前缘与楼顶都进画。 */
 export const TRAMLINE_VIEW = {
     azimuth: 45 * DEG,
-    elevation: 30 * DEG,
-    zoom: 1.52,
+    elevation: 28 * DEG,
+    zoom: 1.28,
 } as const;

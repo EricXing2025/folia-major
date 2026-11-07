@@ -21,7 +21,8 @@ const SCENE = process.env.MACHI_SCENE ?? 'tramline';
 const SEED = process.env.MACHI_SEED ?? 'probe-0';
 
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
+const [VW, VH] = (process.env.MACHI_VIEWPORT ?? '1600x900').split('x').map(Number);
+const page = await browser.newPage({ viewport: { width: VW, height: VH } });
 page.on('console', message => {
     if (message.type() === 'error') console.log(`[console.error] ${message.text().slice(0, 300)}`);
 });
@@ -47,6 +48,7 @@ await page.waitForFunction(() => window.__machiDebug, null, { timeout: 60000 });
 await page.waitForTimeout(3500); // 字体与招牌首绘。
 
 for (const shot of SHOTS) {
+    if (shot.w && shot.h) await page.setViewportSize({ width: shot.w, height: shot.h });
     await page.evaluate(({ tuning, ambient, view }) => {
         const d = window.__machiDebug;
         d.setTuning(tuning);

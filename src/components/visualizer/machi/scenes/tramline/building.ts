@@ -47,14 +47,15 @@ const WINDOW_SLOTS: WindowSlot[] = [
     { x: RIGHT_X, z: -3.5, face: 1, floor: 3 },
 ];
 
-/** 窗式空调的候选位（窗洞下缘外墙上）。 */
+/** 窗式空调的候选位：一二层之间没有窗台可挂，前墙两台直接蹲在门头雨篷顶上（靠前避开窗台板），
+ * 三层两台挂在窗洞下方的实墙上。 */
 const AC_SLOTS = [
-    { x: -5.05, z: B.z1 + 0.1, y: 2.66, face: 0 as const },
-    { x: -3.25, z: B.z1 + 0.1, y: 2.66, face: 0 as const },
-    { x: -5.05, z: B.z1 + 0.1, y: 4.06, face: 0 as const },
-    { x: -4.15, z: B.z1 + 0.1, y: 4.06, face: 0 as const },
-    { x: B.x1 + 0.1, z: -4.6, y: 4.06, face: 1 as const },
-    { x: B.x1 + 0.1, z: -3.5, y: 4.06, face: 1 as const },
+    { x: -5.05, z: B.z1 + 0.35, y: FASCIA.y1, face: 0 as const },
+    { x: -3.25, z: B.z1 + 0.35, y: FASCIA.y1, face: 0 as const },
+    { x: -5.05, z: B.z1 + 0.1, y: 3.78, face: 0 as const },
+    { x: -4.15, z: B.z1 + 0.1, y: 3.78, face: 0 as const },
+    { x: B.x1 + 0.1, z: -4.6, y: 3.78, face: 1 as const },
+    { x: B.x1 + 0.1, z: -3.5, y: 3.78, face: 1 as const },
 ];
 
 export interface TramlineBuildingParts {
@@ -91,15 +92,55 @@ export const buildTangLau = (materials: MachiMaterials, variation: TramlineVaria
     parts.push(boxAt(materials.toon('concrete'), [0.7, 0.5, 0.55], [B.x0 + 0.7, B.wallTop + 0.1, B.z0 + 0.7], { radius: 0.05, name: 'Roof/tank' }));
     parts.push(cylinderAt(materials.toon('pipe'), 0.05, 0.5, [B.x1 - 0.8, B.wallTop + 0.1, B.z0 + 0.6], { segments: 8, name: 'Roof/vent' }));
 
-    // 前墙（二层到檐口，窗洞开在实墙上）、右墙、背墙与左墙。一层前段是骑楼柱廊，店面退进去。
-    parts.push(boxSpan(wall, B.x0, B.x1, B.cafeTop + 0.14, B.wallTop, B.z1 - B.wall, B.z1, { radius: 0.01, name: 'Wall/front' }));
-    parts.push(boxSpan(wall, B.x1 - B.wall, B.x1, B.cafeTop + 0.14, B.wallTop, B.z0, B.z1, { radius: 0.01, name: 'Wall/right' }));
+    // 前墙与右墙（二层到檐口）：不再是一整块实墙——按窗洞分成窗台带、窗间壁柱与过梁带，窗洞是真洞、
+    // 洞里再做凹进的窗套。每条水平带外探一点当线脚，灰青带与灰米柱分出层次。背墙与左墙镜头看不到，仍是整墙。
+    const sillMat = materials.toon('tangBand');
+    const WIN_W = 0.62;
+    const OPEN_HALF = WIN_W / 2 + 0.03;
+    type WallAxis = 0 | 1;
+    const wallBox = (axis: WallAxis, mat: THREE.Material, a0: number, a1: number, y0: number, y1: number, proud = 0) => {
+        if (a1 - a0 < 0.02) return;
+        parts.push(axis === 0
+            ? boxSpan(mat, a0, a1, y0, y1, B.z1 - B.wall, B.z1 + proud, { radius: 0.01, name: 'Wall' })
+            : boxSpan(mat, B.x1 - B.wall, B.x1 + proud, y0, y1, a0, a1, { radius: 0.01, name: 'Wall' }));
+    };
+    const buildFacade = (axis: WallAxis) => {
+        const a0 = axis === 0 ? B.x0 : B.z0;
+        const a1 = axis === 0 ? B.x1 : B.z1;
+        const rows = [
+            { y0: B.cafeTop + 0.14, y1: B.win2.y0, floor: 0 },
+            { y0: B.win2.y0, y1: B.win2.y1, floor: 2 },
+            { y0: B.win2.y1, y1: B.win3.y0, floor: 0 },
+            { y0: B.win3.y0, y1: B.win3.y1, floor: 3 },
+            { y0: B.win3.y1, y1: B.wallTop, floor: 0 },
+        ];
+        rows.forEach(row => {
+            if (row.floor === 0) {
+                // 横带比壁柱面外探一线：窗台线脚与过梁带的影子就是立面的结构线。
+                wallBox(axis, sillMat, a0, a1, row.y0, row.y1, 0.014);
+                return;
+            }
+            const centers = WINDOW_SLOTS
+                .filter(slot => slot.face === axis && slot.floor === row.floor)
+                .map(slot => axis === 0 ? slot.x : slot.z)
+                .sort((a, b) => a - b);
+            let cursor = a0;
+            centers.forEach(center => {
+                wallBox(axis, wall, cursor, center - OPEN_HALF, row.y0, row.y1);
+                cursor = center + OPEN_HALF;
+            });
+            wallBox(axis, wall, cursor, a1, row.y0, row.y1);
+        });
+    };
+    buildFacade(0);
+    buildFacade(1);
+    // 檐口线脚（女儿墙下一条压顶的出挑带）与背墙、左墙。
+    parts.push(boxSpan(materials.toon('tangTrim'), B.x0 - 0.02, B.x1 + 0.02, B.wallTop - 0.04, B.wallTop + 0.08, B.z1 - B.wall - 0.02, B.z1 + 0.05, { radius: 0.01, name: 'Cornice/front' }));
+    parts.push(boxSpan(materials.toon('tangTrim'), B.x1 - B.wall - 0.02, B.x1 + 0.05, B.wallTop - 0.04, B.wallTop + 0.08, B.z0 - 0.02, B.z1 + 0.02, { radius: 0.01, name: 'Cornice/right' }));
     parts.push(boxSpan(wall, B.x0, B.x1, LEVEL.floor, B.wallTop, B.z0, B.z0 + B.wall, { radius: 0.01, name: 'Wall/back' }));
     parts.push(boxSpan(wall, B.x0, B.x0 + B.wall, LEVEL.floor, B.wallTop, B.z0, B.z1, { radius: 0.01, name: 'Wall/left' }));
-    // 右墙一层与后墙一层（柱廊段之外的实墙）。
+    // 右墙一层（柱廊段之外的实墙；背墙与左墙的一层已含在上面的整墙里）。
     parts.push(boxSpan(wall, B.x1 - B.wall, B.x1, LEVEL.floor, B.cafeTop, B.z0, B.z1 - B.arcade + 0.12, { radius: 0.01, name: 'Wall/rightGf' }));
-    parts.push(boxSpan(wall, B.x0, B.x0 + B.wall, LEVEL.floor, B.cafeTop, B.z0, B.z1, { radius: 0.01, name: 'Wall/leftGf' }));
-    parts.push(boxSpan(wall, B.x0, B.x1, LEVEL.floor, B.cafeTop, B.z0, B.z0 + B.wall, { radius: 0.01, name: 'Wall/backGf' }));
 
     // 骑楼柱廊：前缘两根柱加转角柱，撑起上面的墙。
     const column = materials.toon('tangTrim');
@@ -131,29 +172,59 @@ export const buildTangLau = (materials: MachiMaterials, variation: TramlineVaria
         height: FASCIA.y1 - FASCIA.y0 - 0.06,
     };
 
-    // 转角歌词灯箱：深绿金属框、奶油字面（ledScreen 给字），底部两根钢臂斜撑回前后墙。
+    // 转角歌词灯箱：港式挂墙灯箱——深绿金属薄框、屏面贴在框口上，背面伸出安装臂扎进前后两墙。
+    // 框体与屏面共用同一个中心（boxAt 记底面、屏面记中心，先把盒体中心对齐组原点再收边）。
     const n = { x: Math.sin(BOARD.azimuth), z: Math.cos(BOARD.azimuth) };
     const across = { x: Math.cos(BOARD.azimuth), z: -Math.sin(BOARD.azimuth) };
+    const BW = BOARD.width;
+    const BH = BOARD.height;
+    const BD = BOARD.depth;
     const board = new THREE.Group();
     board.name = 'Board';
     board.position.set(BOARD.cx, BOARD.cy, BOARD.cz);
     board.rotation.y = BOARD.azimuth;
     const frameMat = materials.toon('boardFrame');
+    const rimMat = materials.toon('boardRim');
     board.add(
-        boxAt(frameMat, [BOARD.width + 0.16, BOARD.height + 0.16, BOARD.depth], [0, 0, -BOARD.depth / 2], { radius: 0.05, name: 'Board/frame' }),
-        boxAt(materials.toon('boardRim'), [BOARD.width + 0.2, 0.06, BOARD.depth + 0.04], [0, BOARD.height / 2 + 0.06, -BOARD.depth / 2], { radius: 0.01, name: 'Board/cap' }),
-        boxAt(frameMat, [BOARD.width + 0.2, 0.07, BOARD.depth + 0.04], [0, -BOARD.height / 2 - 0.05, -BOARD.depth / 2], { radius: 0.01, name: 'Board/sill' }),
+        // 垂直中心在组原点（与屏面中心一致）：框口前面过原点，背面贴到 -BD。
+        boxAt(frameMat, [BW + 0.12, BH + 0.12, BD], [0, -(BH + 0.12) / 2, -BD / 2], { radius: 0.04, name: 'Board/frame' }),
+        // 四边等宽的金属边框条，压在框口四周。
+        boxAt(rimMat, [BW + 0.2, 0.07, BD + 0.03], [0, BH / 2 - 0.005, -BD / 2], { radius: 0.015, name: 'Board/bezel' }),
+        boxAt(rimMat, [BW + 0.2, 0.07, BD + 0.03], [0, -BH / 2 - 0.065, -BD / 2], { radius: 0.015, name: 'Board/bezel' }),
+        boxAt(rimMat, [0.07, BH + 0.06, BD + 0.03], [-(BW / 2 + 0.03), -(BH + 0.06) / 2, -BD / 2], { radius: 0.015, name: 'Board/bezel' }),
+        boxAt(rimMat, [0.07, BH + 0.06, BD + 0.03], [BW / 2 + 0.03, -(BH + 0.06) / 2, -BD / 2], { radius: 0.015, name: 'Board/bezel' }),
     );
-    // 底部两根斜撑：从板底边回到前墙与右墙。
-    const railLocalY = BOARD.cy - BOARD.height / 2 + 0.04;
-    const railA = v(BOARD.cx - across.x * 1.15, railLocalY, BOARD.cz - across.z * 1.15);
-    const railB = v(BOARD.cx + across.x * 1.15, railLocalY, BOARD.cz + across.z * 1.15);
     parts.push(board);
     const support = materials.toon('darkMetal');
-    parts.push(tubeBetween(support, railA, v(-2.0, FASCIA.y1 + 0.02, B.z1 - 0.05), 0.045, { name: 'Board/strut' }));
-    parts.push(tubeBetween(support, railB, v(B.x1 - 0.05, FASCIA.y1 + 0.02, -2.1), 0.045, { name: 'Board/strut' }));
-    parts.push(tubeBetween(support, v(BOARD.cx - n.x * 0.1, railLocalY, BOARD.cz - n.z * 0.1), v(B.x1 - 0.06, railLocalY - 0.02, B.z1 - 0.06), 0.04, { name: 'Board/strut' }));
-    // 字面沿法线探出框架盒前面 2cm，避免共面闪。
+    // 安装臂：从板背面沿 -n 扎进最近的墙（前墙或右墙），落点一片小垫板。上下两臂各一根。
+    const backPoint = (off: number, dy: number) => v(
+        BOARD.cx + across.x * off - n.x * BD,
+        BOARD.cy + dy,
+        BOARD.cz + across.z * off - n.z * BD,
+    );
+    const wallHit = (p: THREE.Vector3) => {
+        const hits: THREE.Vector3[] = [];
+        const tz = (p.z - B.z1) / n.z;
+        const hx = p.x - n.x * tz;
+        if (tz > 0.05 && hx > B.x0 + 0.05 && hx < B.x1 - 0.02) hits.push(v(hx, p.y, B.z1));
+        const tx = (p.x - B.x1) / n.x;
+        const hz = p.z - n.z * tx;
+        if (tx > 0.05 && hz > B.z0 + 0.05 && hz < B.z1 - 0.02) hits.push(v(B.x1, p.y, hz));
+        return hits.sort((a, b) => a.distanceToSquared(p) - b.distanceToSquared(p))[0] ?? null;
+    };
+    [-1, 1].forEach(side => {
+        const off = side * 0.45;
+        [BH / 2 - 0.14, -BH / 2 + 0.18].forEach((dy, index) => {
+            const p = backPoint(off, dy);
+            const hit = wallHit(p);
+            if (!hit) return;
+            if (index === 1) hit.y -= 0.16;
+            parts.push(tubeBetween(support, p, hit, index === 0 ? 0.032 : 0.038, { name: 'Board/mount' }));
+            const onFront = Math.abs(hit.z - B.z1) < 0.02;
+            parts.push(boxAt(support, onFront ? [0.12, 0.16, 0.05] : [0.05, 0.16, 0.12], [hit.x, hit.y - 0.08, hit.z], { radius: 0.01, name: 'Board/plate' }));
+        });
+    });
+    // 字面沿板面法线探出框口 2cm，避免共面闪。
     const boardFace: TramlineFace = {
         position: v(BOARD.cx + n.x * 0.02, BOARD.cy, BOARD.cz + n.z * 0.02),
         rotationY: BOARD.azimuth,
@@ -161,39 +232,75 @@ export const buildTangLau = (materials: MachiMaterials, variation: TramlineVaria
         height: BOARD.height,
     };
 
-    // 转角竖霓虹「茶餐廳」：门头雨篷下面，骑楼柱头往外挑的一支双面竖灯箱。
-    const neonX = B.x1 - 0.1;
-    const neonZ = B.z1 + 0.28;
+    // 转角竖霓虹「茶餐廳」：门头雨篷前沿下吊的一支双面竖灯箱——盒体中心就在组原点，两面字贴前后
+    // 薄面外侧，一根吊杆挂上雨篷底、一根短臂挑回转角骑楼柱。
+    const neonX = B.x1 - 0.15;
+    const neonZ = B.z1 + 0.26;
+    const neonY = FASCIA.y0 - 0.75; // 盒顶恰顶在雨篷底
     const neon = new THREE.Group();
     neon.name = 'CornerNeon';
-    neon.add(boxAt(materials.toon('signBox'), [0.42, 1.5, 0.2], [0, 0, 0], { radius: 0.03, name: 'Neon/box' }));
-    neon.add(boxAt(materials.toon('darkMetal'), [0.06, 0.5, 0.06], [0, 1.0, -0.16], { radius: 0.01, name: 'Neon/arm', rotationY: Math.PI / 4 }));
-    neon.position.set(neonX + 0.2, 1.55, neonZ);
+    neon.add(boxAt(materials.toon('signBox'), [0.42, 1.5, 0.2], [0, -0.75, 0], { radius: 0.03, name: 'Neon/box' }));
+    neon.position.set(neonX, neonY, neonZ);
     neon.rotation.y = Math.PI / 4;
     parts.push(neon);
-    // 字面贴在盒体前后两个薄面上（局部 ±z，半深 0.1，外探 5mm）。
+    parts.push(tubeBetween(support, v(neonX, neonY + 0.72, neonZ), v(neonX, FASCIA.y0 + 0.06, neonZ), 0.02, { name: 'Neon/hanger' }));
+    parts.push(tubeBetween(support, v(neonX - 0.08, neonY + 0.58, neonZ - 0.08), v(B.x1 - 0.35, FASCIA.y0 + 0.04, B.z1 - 0.15), 0.028, { name: 'Neon/arm' }));
+    // 字面贴在盒体前后两个薄面上（局部 ±z，半深 0.1，外探 5mm），中心与盒体一致。
     const neonFaces: TramlineFace[] = [1, -1].map(side => ({
-        position: v(neonX + 0.2 + Math.sin(Math.PI / 4) * side * 0.105, 1.55, neonZ + Math.cos(Math.PI / 4) * side * 0.105),
+        position: v(neonX + Math.sin(Math.PI / 4) * side * 0.105, neonY, neonZ + Math.cos(Math.PI / 4) * side * 0.105),
         rotationY: Math.PI / 4 + (side < 0 ? Math.PI : 0),
         width: 0.34,
         height: 1.42,
     }));
 
-    // 住宅窗：窗框、窗台、玻璃；亮灯是贴着玻璃的实例面。空调外机在窗下。
-    const windowGlass: THREE.Vector3[] = [];
-    WINDOW_SLOTS.forEach(slot => {
+    // 住宅窗：真凹窗套——洞内一层暗背板，没亮灯的大半截挂窗帘，深绿金属窗框嵌在洞口，
+    // 暗玻璃在框后；亮灯是实例面，藏在玻璃与窗帘之间。窗台一块出挑的小石板。
+    const RECESS = 0.11;
+    const inner = materials.toon('windowInner');
+    const pane = materials.toon('windowGlass');
+    const curtainMat = materials.toon('curtain');
+    const windowGlowSpots: THREE.Vector3[] = [];
+    WINDOW_SLOTS.forEach((slot, index) => {
         const win = slot.floor === 2 ? B.win2 : B.win3;
         const wy = (win.y0 + win.y1) / 2;
         const w = 0.62;
         const h = win.y1 - win.y0;
+        // out 是外墙皮方向（face 0 → +z、face 1 → +x），洞里每层材料按离外墙皮的距离排。
+        const depth = (d: number) => slot.face === 0 ? B.z1 - d : B.x1 - d;
+        const backAt = depth(RECESS + 0.005);
+        const glassAt = depth(0.068);
+        const frameAt = depth(0.045);
+        const curtainAt = depth(RECESS - 0.012);
+        const glowAt = depth(0.078);
+        const along = slot.face === 0 ? slot.x : slot.z;
+        // 洞内件缩在窗洞深处，投影看不到：关掉投影减少阴影 pass 的 draw call。
+        const inset = { castShadow: false };
         if (slot.face === 0) {
-            parts.push(boxAt(frame, [w + 0.12, h + 0.1, 0.1], [slot.x, wy - h / 2 - 0.02, slot.z + B.wall / 2], { radius: 0.01, name: 'Win/frame' }));
-            parts.push(boxAt(trim, [w + 0.18, 0.07, 0.2], [slot.x, win.y0 - 0.05, slot.z + B.wall / 2 + 0.04], { radius: 0.01, name: 'Win/sill' }));
-            windowGlass.push(v(slot.x, wy, B.z1 + 0.015));
+            parts.push(boxAt(inner, [w - 0.04, h - 0.02, 0.02], [along, win.y0 + 0.01, backAt - 0.011], { radius: 0.005, name: 'Win/back', ...inset }));
+            if (variation.curtains[index]) {
+                parts.push(boxAt(curtainMat, [w - 0.06, h * 0.55, 0.015], [along, win.y1 - h * 0.55 - 0.02, curtainAt], { radius: 0.005, name: 'Win/curtain', ...inset }));
+            }
+            parts.push(boxAt(pane, [w - 0.06, h - 0.06, 0.015], [along, win.y0 + 0.03, glassAt], { radius: 0.004, name: 'Win/pane', ...inset }));
+            parts.push(boxAt(frame, [OPEN_HALF * 2 + 0.02, 0.05, 0.045], [along, win.y1 - 0.05, frameAt], { radius: 0.005, name: 'Win/frameT' }));
+            parts.push(boxAt(frame, [OPEN_HALF * 2 + 0.02, 0.05, 0.045], [along, win.y0, frameAt], { radius: 0.005, name: 'Win/frameB' }));
+            parts.push(boxAt(frame, [0.05, h - 0.06, 0.045], [along - OPEN_HALF + 0.025, win.y0 + 0.03, frameAt], { radius: 0.005, name: 'Win/frameS' }));
+            parts.push(boxAt(frame, [0.05, h - 0.06, 0.045], [along + OPEN_HALF - 0.025, win.y0 + 0.03, frameAt], { radius: 0.005, name: 'Win/frameS' }));
+            parts.push(boxAt(frame, [0.04, h - 0.1, 0.04], [along, win.y0 + 0.05, frameAt], { radius: 0.004, name: 'Win/mullion', ...inset }));
+            parts.push(boxAt(trim, [w + 0.16, 0.055, 0.17], [along, win.y0 - 0.055, B.z1], { radius: 0.01, name: 'Win/sill' }));
+            windowGlowSpots.push(v(along, wy, glowAt));
         } else {
-            parts.push(boxAt(frame, [0.1, h + 0.1, w + 0.12], [slot.x + B.wall / 2, wy - h / 2 - 0.02, slot.z], { radius: 0.01, name: 'Win/frame' }));
-            parts.push(boxAt(trim, [0.2, 0.07, w + 0.18], [slot.x + B.wall / 2 + 0.04, win.y0 - 0.05, slot.z], { radius: 0.01, name: 'Win/sill' }));
-            windowGlass.push(v(B.x1 + 0.015, wy, slot.z));
+            parts.push(boxAt(inner, [0.02, h - 0.02, w - 0.04], [backAt - 0.011, win.y0 + 0.01, along], { radius: 0.005, name: 'Win/back', ...inset }));
+            if (variation.curtains[index]) {
+                parts.push(boxAt(curtainMat, [0.015, h * 0.55, w - 0.06], [curtainAt, win.y1 - h * 0.55 - 0.02, along], { radius: 0.005, name: 'Win/curtain', ...inset }));
+            }
+            parts.push(boxAt(pane, [0.015, h - 0.06, w - 0.06], [glassAt, win.y0 + 0.03, along], { radius: 0.004, name: 'Win/pane', ...inset }));
+            parts.push(boxAt(frame, [0.045, 0.05, OPEN_HALF * 2 + 0.02], [frameAt, win.y1 - 0.05, along], { radius: 0.005, name: 'Win/frameT' }));
+            parts.push(boxAt(frame, [0.045, 0.05, OPEN_HALF * 2 + 0.02], [frameAt, win.y0, along], { radius: 0.005, name: 'Win/frameB' }));
+            parts.push(boxAt(frame, [0.045, h - 0.06, 0.05], [frameAt, win.y0 + 0.03, along - OPEN_HALF + 0.025], { radius: 0.005, name: 'Win/frameS' }));
+            parts.push(boxAt(frame, [0.045, h - 0.06, 0.05], [frameAt, win.y0 + 0.03, along + OPEN_HALF - 0.025], { radius: 0.005, name: 'Win/frameS' }));
+            parts.push(boxAt(frame, [0.04, h - 0.1, 0.04], [frameAt, win.y0 + 0.05, along], { radius: 0.004, name: 'Win/mullion', ...inset }));
+            parts.push(boxAt(trim, [0.17, 0.055, w + 0.16], [B.x1, win.y0 - 0.055, along], { radius: 0.01, name: 'Win/sill' }));
+            windowGlowSpots.push(v(glowAt, wy, along));
         }
     });
     // 三楼前墙两个小阳台：出挑的台板、三面的细栏杆，盆栽按歌放。
@@ -238,10 +345,12 @@ export const buildTangLau = (materials: MachiMaterials, variation: TramlineVaria
         }
     });
 
-    // 排水管：右墙前段，从女儿墙一路下来，底部拐个弯（滴水点在 weather.drips）。
+    // 排水管：右墙一根、前墙最左一根，从女儿墙一路下来，底部拐个弯（滴水点在 weather.drips）。
     const pipe = materials.toon('pipe');
     parts.push(tubeBetween(pipe, v(B.x1 + 0.09, B.parapetTop - 0.1, -2.4), v(B.x1 + 0.09, LEVEL.lot + 0.35, -2.4), 0.045, { name: 'Pipe' }));
     parts.push(tubeBetween(pipe, v(B.x1 + 0.09, LEVEL.lot + 0.35, -2.4), v(B.x1 + 0.3, LEVEL.lot + 0.18, -2.4), 0.045, { name: 'Pipe/bend' }));
+    parts.push(tubeBetween(pipe, v(B.x0 + 0.22, B.parapetTop - 0.1, B.z1 + 0.09), v(B.x0 + 0.22, FASCIA.y1 + 0.03, B.z1 + 0.09), 0.045, { name: 'Pipe/front' }));
+    parts.push(tubeBetween(pipe, v(B.x0 + 0.22, FASCIA.y1 + 0.03, B.z1 + 0.09), v(B.x0 + 0.45, FASCIA.y1 + 0.03, B.z1 - 0.15), 0.035, { name: 'Pipe/frontGutter' }));
 
     // 亮灯窗：一批实例贴在玻璃面上（亮 → 暖白，暗 → 很暗的窗玻璃），亮度走 windowLit 这个 glow role。
     const windowGlow = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), materials.glow('windowLit'), WINDOW_SLOTS.length);
@@ -256,8 +365,8 @@ export const buildTangLau = (materials: MachiMaterials, variation: TramlineVaria
         const win = slot.floor === 2 ? B.win2 : B.win3;
         const wy = (win.y0 + win.y1) / 2;
         quat.setFromEuler(new THREE.Euler(0, slot.face === 0 ? 0 : Math.PI / 2, 0));
-        scale.set(slot.face === 0 ? 0.56 : 0.56, win.y1 - win.y0 - 0.06, 1);
-        const pos = windowGlass[index]!;
+        scale.set(0.56, win.y1 - win.y0 - 0.06, 1);
+        const pos = windowGlowSpots[index]!;
         matrix.compose(pos, quat, scale);
         windowGlow.setMatrixAt(index, matrix);
         windowGlow.setColorAt(index, new THREE.Color(variation.litWindows[index] ? 1 : 0.055));

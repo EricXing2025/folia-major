@@ -13,6 +13,8 @@ export interface TramlineVariation {
     cafeSignStyle: number;
     /** 二、三楼各窗亮不亮灯（前墙 5 扇、右墙 3 扇，按序）。 */
     litWindows: boolean[];
+    /** 各窗有没有窗帘（按窗序，亮灯的也可以半挂——有生活气）。 */
+    curtains: boolean[];
     /** 空调外机装哪几个（候选位见 building.ts）。 */
     acSpots: number[];
     /** 三楼小阳台：有 / 没有盆栽。 */
@@ -38,6 +40,7 @@ const AC_SPOTS = 6;
 export const resolveTramlineVariation = (seed: string | number): TramlineVariation => {
     const rng = createVisualizerRng(`machi:tramline:${seed}`);
     const litWindows = Array.from({ length: WINDOWS }, () => rng() < 0.52);
+    const curtains = Array.from({ length: WINDOWS }, (_, index) => litWindows[index] ? rng() < 0.4 : rng() < 0.55);
     const acCount = 3 + Math.floor(rng() * 3);
     const acPool = Array.from({ length: AC_SPOTS }, (_, index) => index);
     const acSpots: number[] = [];
@@ -49,6 +52,7 @@ export const resolveTramlineVariation = (seed: string | number): TramlineVariati
         tramAdStyle: Math.floor(rng() * 3),
         cafeSignStyle: Math.floor(rng() * 3),
         litWindows,
+        curtains,
         acSpots,
         balconyPlants: [rng() < 0.6, rng() < 0.45],
         posterLayout: Math.floor(rng() * 2),

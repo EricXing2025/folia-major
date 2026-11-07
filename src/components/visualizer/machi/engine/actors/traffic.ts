@@ -40,7 +40,13 @@ export const clipToBase = <T extends THREE.Material>(material: T, planes: readon
         shader.uniforms.uMachiBaseClip = uniform;
         shader.vertexShader = shader.vertexShader
             .replace('#include <common>', '#include <common>\nvarying vec3 vMachiBaseClip;')
-            .replace('#include <project_vertex>', '#include <project_vertex>\nvMachiBaseClip = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+            .replace('#include <project_vertex>', `#include <project_vertex>
+// transformed 仍是局部坐标：实例网格要先乘 instanceMatrix，不然整批实例按网格原点一起裁切。
+#ifdef USE_INSTANCING
+vMachiBaseClip = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
+#else
+vMachiBaseClip = (modelMatrix * vec4(transformed, 1.0)).xyz;
+#endif`);
         shader.fragmentShader = shader.fragmentShader
             .replace('#include <common>', `#include <common>
 varying vec3 vMachiBaseClip;

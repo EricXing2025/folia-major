@@ -12,6 +12,7 @@ import { MACHI_REFLECT_LAYER } from '../../engine/fx/reflection';
 import { createCanvas, createMachiMeasure, type MachiFont } from '../../engine/signRaster';
 import type { MachiSceneContent } from '../types';
 import type { TramlineFace } from './building';
+import { TRAM } from './layout';
 import type { TramlineVariation } from './tramlineSeed';
 import {
     paintArtistPlate,
@@ -138,7 +139,7 @@ export class TramlineSigns {
         const clipping = createBaseClippingPlanes(MACHI_BASE.half);
         this.tramAd = staticSign(1024, 185, 0.88);
         clipToBase(this.tramAd.material, clipping);
-        adAnchor.add(planeFor(this.tramAd, { position: new THREE.Vector3(), rotationY: 0, width: 2.55, height: 0.46 }, 'Tram/ad'));
+        adAnchor.add(planeFor(this.tramAd, { position: new THREE.Vector3(), rotationY: 0, width: TRAM.ad.width, height: TRAM.ad.y1 - TRAM.ad.y0 - 0.04 }, 'Tram/ad'));
         this.tramDest = staticSign(256, 96, 0.9);
         clipToBase(this.tramDest.material, clipping);
         destAnchor.add(planeFor(this.tramDest, { position: new THREE.Vector3(), rotationY: 0, width: 0.6, height: 0.22 }, 'Tram/dest'));

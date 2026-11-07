@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { buildMachiPlinth, MACHI_BASE, machiSurface } from '../../engine/geometry/plinth';
-import { boxAt, boxSpan, cylinderAt, group, mesh, tubeBetween } from '../../engine/geometry/shapes';
+import { boxSpan, cylinderAt, group, mesh, tubeBetween } from '../../engine/geometry/shapes';
 import type { MachiMaterials } from '../../engine/materials';
 import { BOARD, BUILDING, KIOSK, LEVEL, PROPS, ROAD, STREET_LAMP, STATION, TRACK, TRAM_POLES } from './layout';
 

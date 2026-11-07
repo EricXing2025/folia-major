@@ -49,7 +49,11 @@ import { TramlineSigns } from './tramlineSigns';
 const TRAMLINE_ART = {
     tangWall: '#b9a98f',
     tangTrim: '#8f8271',
+    tangBand: '#85907f',
     windowFrame: '#3d5048',
+    windowInner: '#1e2624',
+    windowGlass: '#22303a',
+    curtain: '#a89a7c',
     roofTar: '#3a4145',
     cafeWall: '#8a7358',
     cafeFloor: '#4a6a62',
@@ -100,9 +104,9 @@ const TRAMLINE_ART = {
 
 /** 电车涂装：车身、奶油腰板、车顶。0 经典墨绿，1 浅一档的广告涂装绿，2 墨绿配红边（任务基准 tramGreen）。 */
 const TRAM_LIVERIES = [
-    { body: '#2f5c40', band: '#e8e0c8', roof: '#d8d0bc' },
-    { body: '#4a7a58', band: '#eee4c8', roof: '#d8d0bc' },
-    { body: '#394c48', band: '#b8452e', roof: '#d8d0bc' },
+    { body: '#3a6b4e', band: '#e8e0c8', roof: '#d8d0bc' },
+    { body: '#558a64', band: '#eee4c8', roof: '#d8d0bc' },
+    { body: '#3f5852', band: '#b8452e', roof: '#d8d0bc' },
 ] as const;
 
 /** 茶餐厅店招版式（底 / 字 / 点缀），按歌换。 */
@@ -156,6 +160,7 @@ const TRAMLINE_GLOWS: Record<string, MachiGlowSpec> = {
     tramCabin: { key: 'tramCabin', level: 1.5 },
     tramHead: { key: 'streetLight', level: 1.7 },
     tramTail: { key: 'stopRed', level: 2.2 },
+    shelterLamp: { key: 'streetLight', level: 1.7 },
 };
 
 /** 滴水：站台雨棚两侧、茶餐厅门头雨篷前檐、报刊亭檐口、唐楼排水管口各一串（相位按歌定）。 */
@@ -263,7 +268,8 @@ class TramlineScene implements MachiScene {
             sticker: built.stop.stickerFace,
         }, variation, this.tram.adAnchor, this.tram.destAnchor);
         const doorAt = new THREE.Vector3(BUILDING.x1 - 0.64, LEVEL.lot, BUILDING.z1 - BUILDING.arcade);
-        this.lights = new TramlineLights(blend, materials, built.cafe.lamps, built.lamp.head, doorAt);
+        const kioskAt = new THREE.Vector3(KIOSK.cx + 0.4, KIOSK.roofY, KIOSK.cz + 0.4);
+        this.lights = new TramlineLights(blend, materials, built.cafe.lamps, built.lamp.head, doorAt, kioskAt);
         const lamp = built.lamp.head;
         this.lightCones = new MachiLightCones(materials, blend, [
             { apex: lamp, target: new THREE.Vector3(lamp.x, LEVEL.road, lamp.z + 0.35), radius: 1.3, gain: 0.5 },
@@ -336,6 +342,7 @@ class TramlineScene implements MachiScene {
         materials.setGlowLevel('tramCabin', (0.3 + 0.7 * look.artificial) * machiNeonGroup(beat, 2));
         materials.setGlowLevel('tramHead', 0.35 + 0.65 * look.streetLamps);
         materials.setGlowLevel('tramTail', 0.3 + 0.7 * look.streetLamps);
+        materials.setGlowLevel('shelterLamp', 0.15 + 0.85 * look.streetLamps);
         // 会动的东西：电车沿轨循环（氛围时钟，暂停即停）、风扇转、白气与光柱慢慢流。
         this.tram.update(ambientTime, environment.wetness);
         this.fan.rotation.y = ambientTime * this.variation.fanSpeed * Math.PI;

@@ -1,5 +1,5 @@
 import type { MachiFont } from '../../engine/signRaster';
-import { context2d, drawIcon, fitFont, fontSpec, strokeNeonText, wrapText } from '../../engine/signRaster';
+import { context2d, drawIcon, fitFont, fontSpec, wrapText } from '../../engine/signRaster';
 
 // src/components/visualizer/machi/scenes/tramline/tramlineSignPaint.ts
 // 港岛街景的招牌画面：茶餐厅门头灯箱（写曲名）、电车腰板广告（写歌手）、转角竖霓虹「茶餐廳」、
@@ -187,13 +187,30 @@ export const paintArtistPlate = (canvas: HTMLCanvasElement, font: MachiFont, art
 export const paintCornerNeon = (canvas: HTMLCanvasElement, font: MachiFont, color: string) => {
     const context = context2d(canvas);
     const { width, height } = canvas;
-    context.clearRect(0, 0, width, height);
+    // 灯箱面板是暗色玻璃底（不透明材质下，画布的透明区会渲染成黑）：先铺一层压暗的霓虹色，
+    // 面板才是一直亮着的粉，不是贴了字才算亮。
+    context.fillStyle = '#241014';
+    context.fillRect(0, 0, width, height);
+    context.globalAlpha = 0.18;
+    context.fillStyle = color;
+    context.fillRect(0, 0, width, height);
+    context.globalAlpha = 1;
     context.textAlign = 'center';
     context.textBaseline = 'middle';
-    context.font = fontSpec({ ...font, weight: 800 }, width * 0.66);
+    context.font = fontSpec({ ...font, weight: 800 }, width * 0.62);
+    // 笔画多的字（餐、廳）用描边会在小尺度糊成块：实填灯管色，再压一遍白芯，远看仍是亮管字。
     const chars = ['茶', '餐', '廳'];
     chars.forEach((char, index) => {
-        strokeNeonText(context, char, width / 2, height * (0.18 + index * 0.32), color, width * 0.13);
+        const y = height * (0.18 + index * 0.32);
+        context.shadowColor = color;
+        context.shadowBlur = width * 0.12;
+        context.fillStyle = color;
+        context.fillText(char, width / 2, y);
+        context.fillText(char, width / 2, y);
+        context.shadowBlur = width * 0.04;
+        context.fillStyle = '#fff2f2';
+        context.fillText(char, width / 2, y);
+        context.shadowBlur = 0;
     });
     // 灯管外框一道细边。
     context.shadowColor = color;

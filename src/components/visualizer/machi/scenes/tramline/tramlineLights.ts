@@ -58,13 +58,15 @@ export class TramlineLights {
     private readonly interior: THREE.PointLight[];
     private readonly spill: THREE.PointLight;
     private readonly street: THREE.SpotLight;
+    private readonly kiosk: THREE.PointLight;
+    private readonly fill: THREE.AmbientLight;
     private readonly pools: Pool[] = [];
     private readonly thumpMaterial: THREE.MeshBasicMaterial;
     private levels: TramlineLightLevels = { interior: 1, street: 1, pools: 1, thump: 0 };
     private readonly poolTexture = createPoolTexture();
     private readonly geometries: THREE.BufferGeometry[] = [];
 
-    constructor(private readonly blend: MachiColorBlend, materials: MachiMaterials, cafeLamps: THREE.Vector3[], lampHead: THREE.Vector3, doorAt: THREE.Vector3) {
+    constructor(private readonly blend: MachiColorBlend, materials: MachiMaterials, cafeLamps: THREE.Vector3[], lampHead: THREE.Vector3, doorAt: THREE.Vector3, kioskAt: THREE.Vector3) {
         this.group.name = 'TramlineLights';
         const point = (intensity: number, distance: number, position: THREE.Vector3, name: string) => {
             const light = new THREE.PointLight(0xffffff, intensity, distance, 2);
@@ -72,13 +74,18 @@ export class TramlineLights {
             light.name = name;
             return light;
         };
-        this.interior = cafeLamps.map((position, index) => point(7, 6.5, position, `Lights/cafe${index}`));
-        this.spill = point(4.5, 5.5, doorAt.clone().add(new THREE.Vector3(0, 1.6, 0.9)), 'Lights/spill');
-        this.street = new THREE.SpotLight(0xffffff, 14, 9, 0.72, 0.6, 2);
+        this.interior = cafeLamps.map((position, index) => point(9, 7, position, `Lights/cafe${index}`));
+        this.spill = point(5.5, 6, doorAt.clone().add(new THREE.Vector3(0, 1.6, 0.9)), 'Lights/spill');
+        this.street = new THREE.SpotLight(0xffffff, 12, 10, 0.78, 0.6, 2);
         this.street.name = 'Lights/street';
         this.street.position.copy(lampHead);
-        this.street.target.position.set(lampHead.x, 0, lampHead.z + 0.4);
+        this.street.target.position.set(lampHead.x - 0.6, 0, lampHead.z + 0.6);
         this.group.add(this.street.target);
+        // 报刊亭檐口下一盏小灯：卖货窗与海报有轮廓，右后角不至于全黑。
+        this.kiosk = point(2.4, 4.5, kioskAt.clone().add(new THREE.Vector3(0.55, 0.45, 0.55)), 'Lights/kiosk');
+        // 很淡的一层城市环境补光：让街道、车身与报刊亭在夜里保住轮廓，不是把夜景提亮。
+        this.fill = new THREE.AmbientLight(0xffffff, 0.4);
+        this.fill.name = 'Lights/fill';
 
         const poolAt = (key: Pool['key'], role: Pool['role'], x: number, z: number, radius: number, level: number, y?: number) => {
             const geometry = new THREE.PlaneGeometry(radius * 2, radius * 2).rotateX(-Math.PI / 2);
@@ -93,11 +100,12 @@ export class TramlineLights {
             this.pools.push({ material, key, level, role });
             this.group.add(mesh);
         };
-        // 店门口一片暖光（骑楼口）、路灯下一片（打在轨道上）、站牌下一小片冷光。
-        poolAt('cafeLight', 'interior', doorAt.x, -0.9, 1.7, 0.45);
-        poolAt('cafeLight', 'interior', -4.2, -1.15, 1.4, 0.3);
-        poolAt('streetLight', 'street', lampHead.x, lampHead.z + 0.4, 1.6, 0.34, LEVEL.road);
+        // 店门口一片暖光（骑楼口）、路灯下一片（打在轨道上）、站牌下一小片冷光、报刊亭下一片。
+        poolAt('cafeLight', 'interior', doorAt.x, -0.9, 1.7, 0.5);
+        poolAt('cafeLight', 'interior', -4.2, -1.15, 1.4, 0.32);
+        poolAt('streetLight', 'street', lampHead.x, lampHead.z + 0.4, 1.7, 0.36, LEVEL.road);
         poolAt('tramCabin', 'cool', -3.4, 0.95, 1.0, 0.26);
+        poolAt('streetLight', 'street', kioskAt.x + 0.5, kioskAt.z + 0.5, 1.1, 0.3);
         // 鼓点光斑：轨道边、路灯下，thump 一跳它涨一圈。
         const thumpGeometry = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
         this.geometries.push(thumpGeometry);
@@ -111,7 +119,7 @@ export class TramlineLights {
         thump.receiveShadow = false;
         this.thump = thump;
         this.group.add(thump);
-        this.group.add(...this.interior, this.spill, this.street);
+        this.group.add(...this.interior, this.spill, this.street, this.kiosk, this.fill);
         this.sync();
     }
 
@@ -121,6 +129,8 @@ export class TramlineLights {
         this.interior.forEach(light => light.color.copy(this.blend.get('interiorLight')));
         this.spill.color.copy(this.blend.get('cafeLight'));
         this.street.color.copy(this.blend.get('streetLight'));
+        this.kiosk.color.copy(this.blend.get('streetLight'));
+        this.fill.color.copy(this.blend.get('streetLight')).lerp(this.blend.get('interiorLight'), 0.5);
         this.pools.forEach(pool => pool.material.color.copy(this.blend.get(pool.key)).multiplyScalar(pool.level));
         this.thumpMaterial.color.copy(this.blend.get('streetLight')).multiplyScalar(0.5);
     }
@@ -128,9 +138,11 @@ export class TramlineLights {
     /** 每帧把节拍与环境亮度写进灯与光斑。 */
     update(levels: TramlineLightLevels) {
         this.levels = levels;
-        this.interior.forEach(light => { light.intensity = 7 * levels.interior * levels.street; });
-        this.spill.intensity = 4.5 * levels.interior * levels.street;
-        this.street.intensity = 10 * levels.street;
+        this.interior.forEach(light => { light.intensity = 9 * levels.interior * levels.street; });
+        this.spill.intensity = 5.5 * levels.interior * levels.street;
+        this.street.intensity = 11 * levels.street;
+        this.kiosk.intensity = 2.4 * levels.street;
+        this.fill.intensity = 0.38 * levels.street;
         this.pools.forEach((pool, index) => {
             const base = pool.role === 'interior' ? levels.interior : pool.role === 'cool' ? 1 : levels.street;
             pool.material.opacity = pool.level * levels.pools * (0.65 + 0.35 * base);

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { boxAt, boxSpan, cylinderAt, group, mesh, sagWire, tubeBetween } from '../../engine/geometry/shapes';
+import { boxAt, cylinderAt, group, mesh, sagWire, tubeBetween } from '../../engine/geometry/shapes';
 import type { MachiMaterials } from '../../engine/materials';
 import { KIOSK, LEVEL, PROPS, STATION, STREET_LAMP, STREET_SIGN, TRACK, TRAM_POLES } from './layout';
 import type { TramlineFace } from './building';
@@ -57,6 +57,12 @@ export const buildTramStop = (materials: MachiMaterials, variation: TramlineVari
     [benchX0 + 0.15, benchX1 - 0.15].forEach(x => {
         parts.push(boxAt(materials.toon('darkMetal'), [0.06, 0.42, 0.28], [x, LEVEL.platform, S.bench.z], { radius: 0.01, name: 'Bench/leg' }));
     });
+    // 雨棚下一盏候车灯：夜里给站台一点暖光，不至于让整段候车位沉进黑里。
+    const lampX = (S.x0 + S.x1) / 2 + 0.3;
+    parts.push(cylinderAt(dark, 0.012, 0.16, [lampX, S.roofFrontY - 0.12, S.z0 + 0.3], { segments: 6, name: 'Shelter/lampCord', castShadow: false }));
+    const bulb = mesh(new THREE.SphereGeometry(0.055, 10, 8), materials.glow('shelterLamp'), { name: 'Shelter/lamp', castShadow: false, receiveShadow: false });
+    bulb.position.set(lampX, S.roofFrontY - 0.19, S.z0 + 0.3);
+    parts.push(bulb);
     // 站牌杆：绿杆、顶部一块「電車站 TRAM STOP」牌（双面，两面同一幅字）、下面一块歌手信息牌。
     const pole = materials.toon('windowFrame');
     parts.push(cylinderAt(pole, 0.035, 2.5, [S.pole.x, LEVEL.platform, S.pole.z], { segments: 8, name: 'Stop/pole' }));
@@ -88,6 +94,9 @@ export const buildKiosk = (materials: MachiMaterials, variation: TramlineVariati
         const y = LEVEL.lot + 0.98 + Math.floor(index / 3) * 0.3;
         kiosk.add(boxAt(magazine, [0.26, 0.3, 0.03], [x, y, d + 0.02], { radius: 0, name: 'Kiosk/mag' }));
     }
+    // 翻板台面上一摞报纸/杂志：营业中的报刊亭味。
+    kiosk.add(boxAt(magazine, [0.34, 0.09, 0.3], [-w + 0.42, LEVEL.lot + 0.97, d + 0.3], { radius: 0.005, name: 'Kiosk/papers' }));
+    kiosk.add(boxAt(magazine, [0.3, 0.07, 0.26], [-w + 0.4, LEVEL.lot + 1.06, d + 0.29], { radius: 0.005, name: 'Kiosk/papers2', rotationY: 0.14 }));
     // 顶上小水箱/天线一点细节。
     kiosk.add(cylinderAt(materials.toon('darkMetal'), 0.02, 0.5, [w - 0.2, K.roofY + 0.07, -d + 0.2], { segments: 6, name: 'Kiosk/aerial' }));
     kiosk.position.set(K.cx, 0, K.cz);
@@ -130,7 +139,7 @@ export const buildStreetLamp = (materials: MachiMaterials): { group: THREE.Objec
         boxAt(materials.toon('darkMetal'), [0.5, 0.11, 0.26], [L.head.x, L.head.y, L.head.z], { radius: 0.04, name: 'Lamp/head' }),
     ];
     const lens = mesh(new THREE.PlaneGeometry(0.42, 0.18).rotateX(Math.PI / 2), materials.glow('lampHead'), { name: 'Lamp/lens', castShadow: false, receiveShadow: false });
-    lens.position.set(L.head.x, L.head.y - 0.062, L.head.z);
+    lens.position.set(L.head.x, L.head.y - 0.002, L.head.z);
     parts.push(lens);
     return { group: group('StreetLamp', ...parts), head: v(L.head.x, L.head.y - 0.07, L.head.z) };
 };
@@ -153,18 +162,14 @@ export const buildTramPoles = (materials: MachiMaterials): THREE.Object3D => {
     });
     // 接触线：杆与杆之间微垂，两头直接通到底座外。
     const xs = [...TRAM_POLES.x];
-    [TRACK.near, TRACK.far].forEach((z, trackIndex) => {
+    [TRACK.near, TRACK.far].forEach(z => {
         let prev = v(-6.1, wireY - 0.04, z);
         xs.forEach(x => {
             const tip = v(x, wireY, z);
-            parts.push(sagWire(wire, prev, tip, 0.09, 0.008));
+            parts.push(sagWire(wire, prev, tip, 0.03, 0.008));
             prev = tip;
         });
-        parts.push(sagWire(wire, prev, v(6.1, wireY - 0.04, z), 0.09, 0.008));
-        // 两轨之间再拉一根纵向的悬吊线（视觉上的供电网）。
-        if (trackIndex === 0) {
-            xs.forEach(x => parts.push(tubeBetween(wire, v(x, wireY + 0.16, TRACK.poleZ), v(x, wireY, z), 0.006, { name: 'Pole/drop', castShadow: false })));
-        }
+        parts.push(sagWire(wire, prev, v(6.1, wireY - 0.04, z), 0.03, 0.008));
     });
     return group('TramPoles', ...parts);
 };
@@ -179,6 +184,11 @@ export const buildStreetProps = (materials: MachiMaterials): THREE.Object3D => {
     PROPS.bollards.forEach(({ x, z }) => {
         parts.push(cylinderAt(materials.toon('bollard'), 0.07, 0.62, [x, LEVEL.lot, z], { segments: 10, name: 'Bollard' }));
         parts.push(boxAt(materials.toon('caution'), [0.15, 0.1, 0.15], [x, LEVEL.lot + 0.42, z], { radius: 0.01, name: 'Bollard/band' }));
+    });
+    // 路缘排水口：贴路面的几块深色格栅，香港马路牙子的常见件。
+    [-4.7, 1.9, 4.9].forEach(x => {
+        parts.push(boxAt(materials.toon('drain'), [0.52, 0.03, 0.26], [x, LEVEL.road + 0.005, 1.02], { radius: 0.005, name: 'Drain' }));
+        parts.push(boxAt(materials.toon('darkMetal'), [0.56, 0.015, 0.3], [x, LEVEL.road + 0.001, 1.02], { radius: 0.003, name: 'Drain/rim' }));
     });
     parts.push(
         cylinderAt(materials.toon('potColor'), 0.22, 0.3, [PROPS.planter.x, LEVEL.lot, PROPS.planter.z], { segments: 10, name: 'Planter' }),
