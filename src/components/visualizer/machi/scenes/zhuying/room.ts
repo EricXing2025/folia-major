@@ -63,6 +63,10 @@ export const buildZhuyingRoom = (materials: MachiMaterials): ZhuyingRoomParts =>
         boxSpan(inner, WINDOW.x0, WINDOW.x1, WINDOW.head, wallHeight, z0, backInner, { radius: 0.005, name: 'Header' }),
         // 窗台里沿一条挑出的小台板。
         boxSpan(wood, WINDOW.x0 - 0.02, WINDOW.x1 + 0.02, WINDOW.sill - 0.03, WINDOW.sill + 0.015, backInner - 0.01, backInner + 0.09, { radius: 0.008, name: 'Sill' }),
+        // 右段实墙的护板缝（两条细凹槽，避开环形灯两侧）与墙头一条暖色收边光。
+        boxSpan(wood, WINDOW.x1 + 0.2, WINDOW.x1 + 0.22, 0.1, wallHeight - 0.5, backInner, backInner + 0.012, { radius: 0.002, name: 'Bay/seam' }),
+        boxSpan(wood, x1 - 0.14, x1 - 0.12, 0.1, wallHeight - 0.5, backInner, backInner + 0.012, { radius: 0.002, name: 'Bay/seam' }),
+        boxSpan(materials.glow('shelfStrip'), WINDOW.x1 + 0.03, x1 - 0.03, wallHeight - 0.42, wallHeight - 0.4, backInner, backInner + 0.014, { radius: 0.002, name: 'Bay/trim' }),
     );
 
     // 窗棂格：墙厚里一圈框料 + 五根竖棂、两根横棂（暗处是深木，玻璃在棂格正中）。

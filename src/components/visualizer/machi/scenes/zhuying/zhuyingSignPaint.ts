@@ -199,6 +199,9 @@ export const paintZhuyingMonitor = (canvas: HTMLCanvasElement, paint: ZhuyingMon
     return marks;
 };
 
+/** 环形灯里歌手名的字号上限（画布宽度的比例）：不回退的下限由测试钉住。 */
+export const ZHUYING_RING_NAME_CAP = 0.21;
+
 export interface ZhuyingRingPaint {
     font: MachiFont;
     artist: string;
@@ -233,7 +236,7 @@ export const paintZhuyingRing = (canvas: HTMLCanvasElement, paint: ZhuyingRingPa
     context.textAlign = 'center';
     context.textBaseline = 'middle';
     const name = paint.artist || 'CHANG\'AN';
-    const px = fitFont(context, { ...paint.font, weight: 800 }, name, width * 0.74, width * 0.21);
+    const px = fitFont(context, { ...paint.font, weight: 800 }, name, width * 0.74, width * ZHUYING_RING_NAME_CAP);
     context.save();
     context.shadowColor = paint.text;
     context.shadowBlur = px * 0.34;
@@ -282,43 +285,61 @@ export const paintZhuyingKline = (canvas: HTMLCanvasElement, paint: ZhuyingKline
     context.stroke();
     context.restore();
 
-    // 六根蜡烛：实体是圆角灯管段，影线是一条灯管线。
+    // 九根细蜡烛：实体是细细的圆角灯管段，影线一条灯管线；一条白线稿趋势线把收盘价串起来（参考图的细线稿感）。
     const candles = [
-        { x: 0.1, open: 0.72, close: 0.5, high: 0.42, low: 0.8 },
-        { x: 0.25, open: 0.5, close: 0.64, high: 0.4, low: 0.72 },
-        { x: 0.4, open: 0.64, close: 0.36, high: 0.3, low: 0.7 },
-        { x: 0.55, open: 0.36, close: 0.55, high: 0.28, low: 0.62 },
-        { x: 0.7, open: 0.55, close: 0.26, high: 0.2, low: 0.6 },
-        { x: 0.85, open: 0.26, close: 0.44, high: 0.16, low: 0.52 },
+        { x: 0.08, open: 0.72, close: 0.58, high: 0.5, low: 0.78 },
+        { x: 0.185, open: 0.58, close: 0.66, high: 0.48, low: 0.74 },
+        { x: 0.29, open: 0.66, close: 0.5, high: 0.42, low: 0.72 },
+        { x: 0.395, open: 0.5, close: 0.6, high: 0.4, low: 0.66 },
+        { x: 0.5, open: 0.6, close: 0.42, high: 0.34, low: 0.66 },
+        { x: 0.605, open: 0.42, close: 0.5, high: 0.32, low: 0.56 },
+        { x: 0.71, open: 0.5, close: 0.3, high: 0.24, low: 0.56 },
+        { x: 0.815, open: 0.3, close: 0.4, high: 0.2, low: 0.46 },
+        { x: 0.92, open: 0.4, close: 0.3, high: 0.16, low: 0.44 },
     ];
-    const bodyWidth = width * 0.075;
+    const bodyWidth = width * 0.038;
+    const yAt = (value: number) => value * height;
     candles.forEach(candle => {
         const up = candle.close < candle.open;
         const color = up ? paint.up : paint.down;
         const cx = candle.x * width;
-        const yAt = (value: number) => value * height;
         context.save();
         context.shadowColor = color;
-        context.shadowBlur = height * 0.09;
+        context.shadowBlur = height * 0.055;
         context.strokeStyle = color;
-        context.lineWidth = Math.max(2, height * 0.028);
+        context.lineWidth = Math.max(1.5, height * 0.014);
         context.beginPath();
         context.moveTo(cx, yAt(candle.high));
         context.lineTo(cx, yAt(candle.low));
         context.stroke();
         context.fillStyle = color;
         context.beginPath();
-        context.roundRect(cx - bodyWidth / 2, yAt(Math.min(candle.open, candle.close)), bodyWidth, yAt(Math.abs(candle.close - candle.open)), bodyWidth * 0.3);
+        context.roundRect(cx - bodyWidth / 2, yAt(Math.min(candle.open, candle.close)), bodyWidth, yAt(Math.abs(candle.close - candle.open)), bodyWidth * 0.35);
         context.fill();
         context.restore();
         // 白芯。
         context.strokeStyle = '#ffffff';
-        context.lineWidth = Math.max(1, height * 0.008);
+        context.lineWidth = Math.max(1, height * 0.007);
         context.beginPath();
         context.moveTo(cx, yAt(candle.high));
         context.lineTo(cx, yAt(candle.low));
         context.stroke();
     });
+    // 白线稿：把各根的收盘价连成一条细折线，像描出来的走势线。
+    context.save();
+    context.shadowColor = '#ffffff';
+    context.shadowBlur = height * 0.04;
+    context.strokeStyle = 'rgba(255,255,255,0.85)';
+    context.lineWidth = Math.max(1, height * 0.008);
+    context.beginPath();
+    candles.forEach((candle, index) => {
+        const cx = candle.x * width;
+        const cy = yAt(candle.close);
+        if (index === 0) context.moveTo(cx, cy);
+        else context.lineTo(cx, cy);
+    });
+    context.stroke();
+    context.restore();
 };
 
 /** 书桌上跑马灯的装饰字（不是行情、不是歌的内容，按歌换一条）。 */

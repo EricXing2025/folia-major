@@ -4,10 +4,10 @@ import { MACHI_BASE } from '@/components/visualizer/machi/engine/geometry/plinth
 import type { MachiMaterials } from '@/components/visualizer/machi/engine/materials';
 import { buildZhuyingDesk } from '@/components/visualizer/machi/scenes/zhuying/desk';
 import { buildZhuyingInterior } from '@/components/visualizer/machi/scenes/zhuying/interior';
-import { DESK, LEVEL, LYRIC, MONITOR, RING, ROOM, SHELF, SKYLINE, STREET, TEA, WINDOW, ZHUYING_VIEW } from '@/components/visualizer/machi/scenes/zhuying/layout';
+import { CHAIR, DESK, LEVEL, LYRIC, MONITOR, RING, ROOM, SHELF, SKYLINE, STREET, TEA, WINDOW, ZHUYING_VIEW } from '@/components/visualizer/machi/scenes/zhuying/layout';
 import { buildZhuyingSkyline } from '@/components/visualizer/machi/scenes/zhuying/skyline';
 import { resolveZhuyingVariation } from '@/components/visualizer/machi/scenes/zhuying/zhuyingSeed';
-import { ZHUYING_TICKER_TEXTS } from '@/components/visualizer/machi/scenes/zhuying/zhuyingSignPaint';
+import { ZHUYING_RING_NAME_CAP, ZHUYING_TICKER_TEXTS } from '@/components/visualizer/machi/scenes/zhuying/zhuyingSignPaint';
 
 // test/unit/visualizer/machi/zhuying.test.ts
 // 烛影长安：按歌变的东西是确定的（同一首歌同一个样）；房间在底座后左、窗开在后墙里、歌词条收在窗洞里、
@@ -95,7 +95,8 @@ describe('zhuying layout', () => {
         // 塔尖要落在歌词条之下的亮窗格里：正交镜头把窗外景物沿 +x、+y 抬上窗面，
         // 抬升量 = tan(俯角) / cos(方位角) × 塔到玻璃的距离（方位角 45°，x 向位移量等于 z 向距离）。
         const depth = WINDOW.z - SKYLINE.pagoda.z;
-        const crown = LEVEL.street + SKYLINE.pagoda.height + (depth * Math.tan(ZHUYING_VIEW.elevation)) / Math.cos(ZHUYING_VIEW.azimuth);
+        const lift = (depth * Math.tan(ZHUYING_VIEW.elevation)) / Math.cos(ZHUYING_VIEW.azimuth);
+        const crown = LEVEL.street + SKYLINE.pagoda.height + lift;
         expect(crown).toBeGreaterThan(WINDOW.sill + (WINDOW.head - WINDOW.sill) * 0.5);
         expect(crown).toBeLessThan(LYRIC.y0);
         const xProjected = SKYLINE.pagoda.x + depth * Math.tan(ZHUYING_VIEW.azimuth);
@@ -104,6 +105,23 @@ describe('zhuying layout', () => {
         // 城楼在窗左端外（台身可以探进窗左一小段，反正隔着墙看）。
         expect(SKYLINE.gate.x0).toBeLessThan(WINDOW.x0);
         expect(SKYLINE.gate.z0).toBeLessThan(ROOM.z0);
+    });
+
+    it('centers the enlarged pagoda in the window’s middle column at 35–45% of the window height', () => {
+        // 塔高约占窗高 35–45%（参考图 ~40%），仍整根收进亮窗格、塔尖在歌词条之下。
+        const windowHeight = WINDOW.head - WINDOW.sill;
+        expect(SKYLINE.pagoda.height / windowHeight).toBeGreaterThanOrEqual(0.35);
+        expect(SKYLINE.pagoda.height / windowHeight).toBeLessThanOrEqual(0.45);
+        const depth = WINDOW.z - SKYLINE.pagoda.z;
+        const xProjected = SKYLINE.pagoda.x + depth * Math.tan(ZHUYING_VIEW.azimuth);
+        const windowCenter = (WINDOW.x0 + WINDOW.x1) / 2;
+        // 中列：投影轴心落在窗宽中段的六分之一偏差内；整座基座（半宽 0.6）也全在窗洞里。
+        expect(Math.abs(xProjected - windowCenter)).toBeLessThan((WINDOW.x1 - WINDOW.x0) * 0.12);
+        expect(xProjected - 0.6).toBeGreaterThan(WINDOW.x0);
+        expect(xProjected + 0.6).toBeLessThan(WINDOW.x1);
+        // 塔底（街面上）也抬进窗里：投影后的塔脚高过窗台，不会被窗台裁掉。
+        const foot = LEVEL.street + (depth * Math.tan(ZHUYING_VIEW.elevation)) / Math.cos(ZHUYING_VIEW.azimuth);
+        expect(foot).toBeGreaterThan(WINDOW.sill);
     });
 
     it('keeps the desk, shelf and tea corner inside the room, and the monitor on the desk', () => {
@@ -128,6 +146,17 @@ describe('zhuying layout', () => {
         // 默认镜头的方位角跟显示器、歌词条的朝向对得上（都朝着前右的镜头）。
         const toDeg = (radians: number) => radians * 180 / Math.PI;
         expect(Math.abs(toDeg(ZHUYING_VIEW.azimuth - MONITOR.azimuth))).toBeLessThan(60);
+    });
+
+    it('keeps the no-regression legibility invariants for the lyric band and the ring name', () => {
+        // 歌词条不缩水：0.62m 的条高、接近整窗的宽度。
+        expect(LYRIC.height).toBeGreaterThanOrEqual(0.619);
+        expect(LYRIC.width).toBeGreaterThanOrEqual(4.4);
+        // 环形灯画布 512px：名字字号上限 0.21×512 ≈ 107px，不许缩。
+        expect(ZHUYING_RING_NAME_CAP * 512).toBeGreaterThanOrEqual(107);
+        // 椅子在房间里、桌前（椅背顶压低，不挡桌沿跑马灯）。
+        expect(insideRoom(CHAIR.x, CHAIR.z)).toBe(true);
+        expect(CHAIR.z).toBeGreaterThan(DESK.z1);
     });
 });
 
@@ -168,6 +197,32 @@ describe('zhuying interior', () => {
         expect(interior.steamAt.y).toBeGreaterThan(TEA.table.top);
         expect(insideRoom(interior.lanternAt.x, interior.lanternAt.z)).toBe(true);
         expect(interior.lanternAt.y).toBeGreaterThan(LEVEL.floor);
+    });
+
+    it('densifies the shelf, both hanging plants and the maple branch', () => {
+        const interior = buildZhuyingInterior(materials, resolveZhuyingVariation('song-1'));
+        const names: string[] = [];
+        const instanced = new Map<string, number>();
+        interior.group.traverse(object => {
+            if (object instanceof THREE.InstancedMesh) instanced.set(object.name, object.count);
+            else if (object instanceof THREE.Mesh) names.push(object.name);
+        });
+        // 三排书脊（比两排多出一截）、三条层板灯带。
+        const spines = interior.productBatches.find(batch => batch.mesh.name === 'Spines')!;
+        expect(spines.mesh.count).toBeGreaterThan(55);
+        expect(names.filter(name => name === 'Shelf/strip')).toHaveLength(3);
+        // 两个挂位都有吊盆（绳与盆各二），其中一盆垂藤更茂。
+        expect(names.filter(name => name === 'Plant/pot')).toHaveLength(2);
+        expect(names.filter(name => name === 'Plant/rope')).toHaveLength(2);
+        expect([...instanced.values()].filter(count => count >= 16).length).toBeGreaterThanOrEqual(2);
+        // 枫叶枝一枝（三段枝）与 18 片实例叶。
+        expect(instanced.get('Maple/leaves')).toBe(18);
+        expect(names.filter(name => name === 'Maple/branch')).toHaveLength(3);
+        // 茶盘、茶壶、两只杯；顶面卧石与小盆栽。
+        ['Tea/tray', 'Teapot', 'Teapot/lid', 'Teapot/spout', 'Shelf/rock', 'Pot', 'Pot/plant'].forEach(name => {
+            expect(names).toContain(name);
+        });
+        expect(names.filter(name => name === 'Cup')).toHaveLength(2);
     });
 
     it('shifts the book spines around between songs', () => {
@@ -228,7 +283,8 @@ describe('zhuying skyline', () => {
 
     it('lights the skyline with instanced windows matching the lit-window count', () => {
         const skyline = buildZhuyingSkyline(materials, resolveZhuyingVariation('song-1'));
-        expect(skyline.litWindows.count).toBeGreaterThan(4);
+        // 中排灯窗之外又加了两翼亮檐楼、脊上城市光点与岸边碎灯，密度明显上去。
+        expect(skyline.litWindows.count).toBeGreaterThan(40);
         const matrix = new THREE.Matrix4();
         const position = new THREE.Vector3();
         for (let index = 0; index < skyline.litWindows.count; index += 1) {
@@ -237,6 +293,39 @@ describe('zhuying skyline', () => {
             expect(position.z).toBeLessThan(ROOM.z0);
             expect(position.y).toBeGreaterThan(LEVEL.street);
         }
+    });
+
+    it('anchors the vista: halo, two lit flank roofs, blossom clusters and a water shimmer, all behind the wall', () => {
+        const skyline = buildZhuyingSkyline(materials, resolveZhuyingVariation('song-1'));
+        const instanced = new Map<string, number>();
+        const named = new Map<string, THREE.Mesh[]>();
+        skyline.group.traverse(object => {
+            if (object instanceof THREE.InstancedMesh) instanced.set(object.name, object.count);
+            else if (object instanceof THREE.Mesh) named.set(object.name, [...(named.get(object.name) ?? []), object]);
+        });
+        // 塔后一圈光晕：加色径向渐变面 + 贴图交给场景销毁。
+        expect(skyline.haloTexture).toBeInstanceOf(THREE.Texture);
+        const halo = named.get('Pagoda/halo')!;
+        expect(halo).toHaveLength(1);
+        expect((halo[0]!.material as THREE.MeshBasicMaterial).blending).toBe(THREE.AdditiveBlending);
+        expect(halo[0]!.position.z).toBeLessThan(SKYLINE.pagoda.z);
+        // 两翼各一座亮檐唐楼：檐口亮边与台基亮边各两条。
+        expect(named.get('Flank/eave')).toHaveLength(2);
+        expect(named.get('Flank/base')).toHaveLength(2);
+        // 两条水面微光带、两团檐下樱花（21 颗实例疙瘩）；全在墙外、低于窗台看进房间的那条线以下无碍。
+        expect(named.get('Water/shimmer')).toHaveLength(2);
+        expect(instanced.get('Blossom/clusters')).toBe(21);
+        const matrix = new THREE.Matrix4();
+        const position = new THREE.Vector3();
+        const clusters = skyline.group.getObjectByName('Blossom/clusters') as THREE.InstancedMesh;
+        for (let index = 0; index < clusters.count; index += 1) {
+            clusters.getMatrixAt(index, matrix);
+            position.setFromMatrixPosition(matrix);
+            expect(position.z).toBeLessThan(ROOM.z0);
+        }
+        [...(named.get('Water/shimmer') ?? []), ...(named.get('Flank/eave') ?? [])].forEach(part => {
+            expect(part.position.z).toBeLessThan(ROOM.z0);
+        });
     });
 });
 
@@ -276,5 +365,28 @@ describe('zhuying desk', () => {
             expect(position.z).toBeGreaterThan(DESK.z0);
             expect(position.z).toBeLessThan(DESK.z1);
         }
+    });
+
+    it('adds the office chair, book stack, tablet and warm desk trim', () => {
+        const desk = buildZhuyingDesk(materials, resolveZhuyingVariation('song-1'));
+        desk.group.updateMatrixWorld(true);
+        const chair = desk.group.getObjectByName('Chair')!;
+        expect(chair).toBeDefined();
+        // 椅子在房里、桌前；椅背顶压低（含头枕不到 1.3m），高不过跑马灯看得到的桌沿。
+        const chairBox = new THREE.Box3().setFromObject(chair);
+        const chairCenter = chairBox.getCenter(new THREE.Vector3());
+        expect(insideRoom(chairCenter.x, chairCenter.z)).toBe(true);
+        expect(chairCenter.z).toBeGreaterThan(DESK.z1);
+        expect(chairBox.max.y).toBeLessThan(1.3);
+        const names: string[] = [];
+        desk.group.traverse(object => {
+            if (object instanceof THREE.Mesh) names.push(object.name);
+        });
+        // 桌角一摞三本书、斜放的小平板、桌后沿与桌脚下沿两条暖亮边。
+        expect(names.filter(name => name === 'Book/stack')).toHaveLength(3);
+        expect(names).toContain('Tablet');
+        expect(names).toContain('Desk/backGlow');
+        expect(names).toContain('Desk/underGlow');
+        expect(names).toContain('Mug');
     });
 });

@@ -23,11 +23,13 @@ import { ZhuyingSigns } from './zhuyingSigns';
 
 // src/components/visualizer/machi/scenes/zhuying/zhuyingScene.ts
 // 烛影长安：夜里一间临街书房（一间屋子的大小，不是大平层）。后墙整面落地棂格窗，窗外是雨里的长安——
-// 湿街、两重唐风屋顶、被灯光洗亮的大雁塔（窗外唯一的暖色大块）、左端的城楼，窗角探进来一枝樱花。
-// 屋里暖琥珀：窗前右中一张书桌，超宽显示器上是 K 线图（标题栏写曲名、底部量柱与末根蜡烛随拍子长）、
-// 前沿一条 LED 跑马灯、键盘、杯子、耳机架、斜杆台灯、小键盘台；左墙矮书架上一排书脊，上方 K 线霓虹；
-// 后墙右段实墙一圈环形灯（歌手名霓虹 + EQ 柱随节拍起伏）；前左矮茶案冒热气，旁边纸灯笼与蒲团。
-// 会动的：EQ 柱、量柱、末根蜡烛、茶壶白气、台灯灯锥、街上的雨与湿反光。按歌变的：樱花角、吊盆位、
+// 湿街、两重唐风屋顶、被灯光洗亮的大雁塔（窗外唯一的暖色大块，塔后衬光晕、两翼各一座亮檐唐楼、檐下两团樱花、
+// 檐脚一条水面微光）、左端的城楼与一片城市光点，窗角探进来一枝樱花。屋里暖琥珀：窗前右中一张书桌，超宽显示器上是
+// K 线图（标题栏写曲名、底部量柱与末根蜡烛随拍子长）、前沿一条 LED 跑马灯、键盘、杯子、耳机架、书堆、小平板、
+// 斜杆台灯、小键盘台，桌前一把背对镜头的转椅；左墙三格高书架（层板下灯带、顶面书石盆栽），上方 K 线霓虹；
+// 后墙右段实墙一圈环形灯（歌手名霓虹 + EQ 柱随节拍起伏）与护板缝暖收边；前左矮茶案冒热气，旁边纸灯笼与蒲团；
+// 窗头两只吊盆垂藤、左墙头一枝枫叶；抛光地板上灯影拖出几条斜亮痕。
+// 会动的：EQ 柱、量柱、末根蜡烛、茶壶白气、台灯灯锥、街上的雨与湿反光。按歌变的：樱花角、吊盆茂位、
 // 天际线灯窗、书脊配色、蜡烛图、末根蜡烛阴阳、跑马灯字条、风向、水洼（zhuyingSeed.ts）。
 
 /** 书房自己的颜色：暖木与宣纸的屋里，深蓝的屋外；塔是暖金，霓虹一粉一青，蜡烛图红绿两色。 */
@@ -57,6 +59,8 @@ const ZHUYING_ART = {
     pagodaGlow: '#e8b45c',
     branch: '#3a2a24',
     blossom: '#f2a8c0',
+    rock: '#6e6a60',
+    maple: '#c4553a',
     chartUp: '#35d07f',
     chartDown: '#f0485c',
     ringLight: '#ffd9e8',
@@ -80,13 +84,16 @@ const resolveZhuyingArt: MachiArtResolver = (_theme, _seed, base) => ({
 
 /** 自发光件：颜色键与亮度倍数（线性空间，> 1 才被 bloom 轻轻带出光晕）。 */
 const ZHUYING_GLOWS: Record<string, MachiGlowSpec> = {
-    shelfStrip: { key: 'interiorLight', level: 1.8 },
-    lantern: { key: 'interiorLight', level: 1.6 },
+    shelfStrip: { key: 'interiorLight', level: 1.9 },
+    lantern: { key: 'interiorLight', level: 1.7 },
     lampGlow: { key: 'interiorLight', level: 2.4 },
-    pagoda: { key: 'pagodaGlow', level: 1.7 },
-    pagodaBody: { key: 'pagodaGlow', level: 0.55 },
+    pagoda: { key: 'pagodaGlow', level: 2.3 },
+    pagodaBody: { key: 'pagodaGlow', level: 0.8 },
+    pagodaHalo: { key: 'pagodaGlow', level: 1.0 },
+    eaveGlow: { key: 'pagodaGlow', level: 1.5 },
+    waterGlow: { key: 'pagodaGlow', level: 0.55 },
     gateLamp: { key: 'interiorLight', level: 1.4 },
-    cityWindow: { key: 'interiorLight', level: 0.55 },
+    cityWindow: { key: 'interiorLight', level: 0.75 },
     chartMark: { key: 'chartMark', level: 0.9 },
     chartUp: { key: 'chartUp', level: 1.3 },
     chartDown: { key: 'chartDown', level: 1.3 },
@@ -167,7 +174,7 @@ class ZhuyingScene implements MachiScene {
         }));
         const { room, skyline, desk, interior } = built;
         this.productBatches = interior.productBatches;
-        this.roomTextures = [room.streakTexture];
+        this.roomTextures = [room.streakTexture, skyline.haloTexture];
         this.world.name = 'Zhuying/world';
         this.world.add(room.group, skyline.group, desk.group, interior.group);
         // 亮的东西进倒影图层（湿街上映得出灯窗、塔灯、灯笼）；天际线的楼身当遮挡。
@@ -210,7 +217,7 @@ class ZhuyingScene implements MachiScene {
             drips: zhuyingDrips(context.song.seed),
             // 落进灯光里的雨丝被照亮：塔上的暖光、城楼檐下的灯、窗里泻出的灯光。
             glints: [
-                { position: new THREE.Vector3(SKYLINE.pagoda.x, 1.0, SKYLINE.pagoda.z + 0.3), radius: 1.4 },
+                { position: new THREE.Vector3(SKYLINE.pagoda.x, 1.15, SKYLINE.pagoda.z + 0.3), radius: 1.5 },
                 { position: new THREE.Vector3((SKYLINE.gate.x0 + SKYLINE.gate.x1) / 2, 0.9, SKYLINE.gate.z1 + 0.3), radius: 1.0 },
                 { position: new THREE.Vector3((WINDOW.x0 + WINDOW.x1) / 2, 1.6, WINDOW.z - 0.3), radius: 1.8 },
             ],
@@ -220,7 +227,7 @@ class ZhuyingScene implements MachiScene {
         this.framing = { points: framingPoints(), view: { ...ZHUYING_VIEW } };
         // 雾里的两处灯：屋里的暖光、塔上的暖光。
         this.glowA = new THREE.Vector4(desk.lampApex.x, desk.lampApex.y, desk.lampApex.z, 1.6);
-        this.glowB = new THREE.Vector4(SKYLINE.pagoda.x, 0.95, SKYLINE.pagoda.z + 0.3, 2.2);
+        this.glowB = new THREE.Vector4(SKYLINE.pagoda.x, 1.1, SKYLINE.pagoda.z + 0.3, 2.6);
         this.syncColors();
         context.invalidateShadows();
     }
@@ -254,6 +261,9 @@ class ZhuyingScene implements MachiScene {
         materials.setGlowLevel('lampGlow', interior * (0.9 + 0.1 * frame.flicker));
         materials.setGlowLevel('pagoda', night * (0.9 + 0.15 * beat.warm));
         materials.setGlowLevel('pagodaBody', night * (0.85 + 0.15 * beat.warm));
+        materials.setGlowLevel('pagodaHalo', night * (0.8 + 0.2 * beat.warm));
+        materials.setGlowLevel('eaveGlow', night * (0.85 + 0.15 * beat.warm));
+        materials.setGlowLevel('waterGlow', night * (0.6 + 0.2 * beat.warm + 0.2 * frame.flicker));
         materials.setGlowLevel('gateLamp', (0.5 + 0.5 * look.streetLamps) * (0.85 + 0.15 * frame.flicker));
         materials.setGlowLevel('cityWindow', night * (0.75 + 0.25 * beat.warm));
         materials.setGlowLevel('chartMark', 0.65 + 0.35 * frame.audio * beat.neon);
