@@ -141,13 +141,15 @@ export const buildPrompt = ({ scene, history = [], profile = PROFILE, extra = 8 
         '【硬性规则】',
         '- 只选真实存在、正式发行的版本；不要翻唱、Live、DJ 版、remix，除非场景特别说明。',
         '- 避免重复：歌与歌手都不要在一批里重复。',
+        '- 语种构成：英文歌约占四分之一（本批至少 5 首），按画像的英文位口径选；历史列表里英文少只是存量，不代表偏好。',
+        '- 年代构成：至少 4 首为 2019 年以后发行的新歌（华语、英文都算）；不要整批都是 2010 年以前的老歌。',
         heard.length ? `- 这些歌最近放过，不要再选：${heard.map(fmt).join('；')}。` : '',
         skipped.length ? `- 这些歌被很快切走（不喜欢），不要再选类似气质的：${skipped.map(fmt).join('；')}。` : '',
         liked.length ? `- 这些歌被完整听完（喜欢），可接近其气质：${liked.map(fmt).join('；')}。` : '',
         '',
         '【输出】只输出一个 JSON 数组，无其他文字，元素为 {"title":"歌名","artist":"歌手"}。',
     ].filter((line) => line !== '').join('\n');
-    const system = '你是私人电台的音乐编辑，按用户的口味画像和场景要求，从华语与优质流行全曲库中挑歌。只输出要求的 JSON，不解释。';
+    const system = '你是私人电台的音乐编辑，按用户的口味画像和场景要求，从华语与欧美优质流行全曲库中挑歌。只输出要求的 JSON，不解释。';
     return { system, user, count };
 };
 
