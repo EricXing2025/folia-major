@@ -12,7 +12,7 @@
 // 兜底（生成失败/无 key/核验为空）：有 bridge 时从已记录歌单尝试，之后沿用 v1 快照 → 歌手 → 手动提示；
 // 歌单与快照属「重播同一批」，自上次成功生成起最多复活一次，用尽弹错误 toast；失败尝试落盘 diag。
 
-import { createRadio, SECRET_KEY, DEFAULT_GATEWAY, DEFAULT_MODEL, STORAGE_KEY } from './radio.mjs';
+import { createRadio, SECRET_KEY, DEFAULT_GATEWAY, DEFAULT_MODEL, DEFAULT_REASONING_EFFORT, STORAGE_KEY } from './radio.mjs';
 import { createScenePlaylistSync } from './sceneBridge.mjs';
 
 /** @typedef {import('../folium').FoliumClientApi} Folium */
@@ -47,6 +47,14 @@ export default function activate(folium) {
                 label: { 'zh-CN': '模型', en: 'Model' },
                 defaultValue: DEFAULT_MODEL,
                 placeholder: DEFAULT_MODEL,
+            },
+            {
+                key: 'reasoningEffort',
+                type: 'text',
+                label: { 'zh-CN': '推理强度', en: 'Reasoning effort' },
+                description: { 'zh-CN': '网关 reasoning_effort（如 max / high / medium / low）；清空则不发送此参数。', en: 'Gateway reasoning_effort (e.g. max / high / medium / low); clear it to omit the parameter.' },
+                defaultValue: DEFAULT_REASONING_EFFORT,
+                placeholder: DEFAULT_REASONING_EFFORT,
             },
             {
                 key: SECRET_KEY,

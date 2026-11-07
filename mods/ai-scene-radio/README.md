@@ -13,7 +13,7 @@
 下文保留 v1 背景供对照：其中「没有歌单读取 API」仅指无 v2 bridge 的旧 Folium。
 
 - `mod.json`：权限 `playback.queue`（整队送播）、`playback.control`（开播、续单点播）、`net.fetch`（调 LLM）、`filesystem.data`（反馈与批次快照）。
-- `client.mjs`：接线层。注册 5 个场景命令（工作·上午/下午/晚上、驾车、读书）+「AI 电台：停止续播」；设置区三项（网关地址默认 `https://trendxai.io/v1`、模型默认 `gemini-3.8-flash-high`、API Key 为 secret 型走 `folium.secrets`）；挂 `queueChanged`/`songChanged` 监听与每秒位置采样。
+- `client.mjs`：接线层。注册 5 个场景命令（工作·上午/下午/晚上、驾车、读书）+「AI 电台：停止续播」；设置区三项（网关地址默认 `https://trendxai.io/v1`、模型默认 `gpt-6-luna`、API Key 为 secret 型走 `folium.secrets`）；挂 `queueChanged`/`songChanged` 监听与每秒位置采样。
 - `radio.mjs`：核心逻辑，副作用全经注入端口，可离线单测。
 - `configData.mjs`：`config/*.json` 的内嵌副本（`folia-mod://` 只 serve .js/.mjs，读不了 JSON）；**改配置先改 JSON 再同步它**。
 - `tests/run.mjs`：纯逻辑单测，fake fetch/omni/playback/storage 注入，不连真网关。

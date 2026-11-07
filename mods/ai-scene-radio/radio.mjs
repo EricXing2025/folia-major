@@ -10,7 +10,9 @@ export const STORAGE_KEY = 'aiSceneRadio.v1';
 export const DIAG_STORAGE_KEY = 'aiSceneRadio.diag.v1';
 export const SECRET_KEY = 'apiKey';
 export const DEFAULT_GATEWAY = 'https://trendxai.io/v1';
-export const DEFAULT_MODEL = 'gemini-3.8-flash-high';
+export const DEFAULT_MODEL = 'gpt-6-luna';
+// Eric 2026-11-07 定：电台生成改走 gpt-6-luna，推理强度 max（网关字段 reasoning_effort，实测生效）。
+export const DEFAULT_REASONING_EFFORT = 'max';
 // trendxai 网关躲在 Cloudflare 后面：无浏览器 UA 的请求会被 403（error 1010）拒绝。
 export const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
@@ -364,6 +366,7 @@ export const createRadio = (deps) => {
         const conf = settings();
         const base = (String(conf.gatewayBase ?? '').trim() || DEFAULT_GATEWAY).replace(/\/+$/, '');
         const model = String(conf.model || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
+        const reasoningEffort = String(conf.reasoningEffort ?? '').trim() || DEFAULT_REASONING_EFFORT;
         const prompt = buildPrompt({ scene, history });
         const response = await deps.fetch(`${base}/chat/completions`, {
             method: 'POST',
@@ -375,6 +378,7 @@ export const createRadio = (deps) => {
             },
             body: JSON.stringify({
                 model,
+                ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
                 messages: [
                     { role: 'system', content: prompt.system },
                     { role: 'user', content: prompt.user },
