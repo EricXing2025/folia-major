@@ -118,11 +118,97 @@ export const dedupeCandidates = (candidates) => {
     return out;
 };
 
+// ---------------------------------------------------------------- 此刻上下文（天气＋时间季节）
+
+// Eric 所在城市：西安。天气走 Open-Meteo 免 key 接口；季节/节气/时段本地算。
+export const HOME_CITY = { name: '西安', lat: 34.3416, lon: 108.9398};
+
+// 二十四节气近似日期（月*100+日，个别年份差一天，对氛围判断无影响）与所属季节。
+const SOLAR_TERMS = [
+ [105, '小寒', '冬'], [120, '大寒', '冬'], [204, '立春', '春'], [219, '雨水', '春'],
+ [305, '惊蛰', '春'], [320, '春分', '春'], [405, '清明', '春'], [420, '谷雨', '春'],
+ [505, '立夏', '夏'], [521, '小满', '夏'], [605, '芒种', '夏'], [621, '夏至', '夏'],
+ [707, '小暑', '夏'], [723, '大暑', '夏'], [807, '立秋', '秋'], [823, '处暑', '秋'],
+ [907, '白露', '秋'], [923, '秋分', '秋'], [1008, '寒露', '秋'], [1023, '霜降', '秋'],
+ [1107, '立冬', '冬'], [1122, '小雪', '冬'], [1207, '大雪', '冬'], [1221, '冬至', '冬'],
+];
+const SEASON_START_TERM = { '春': '立春', '夏': '立夏', '秋': '立秋', '冬': '立冬'};
+
+// 由日期得季节信息：{season, term, phase}。phase 只标季节头三周的「初」（如初冬），其余为空。
+export const seasonInfo = (date) => {
+ const md = (date.getMonth() + 1) * 100 + date.getDate();
+ let idx = -1;
+ for (let i = 0; i < SOLAR_TERMS.length; i += 1) {
+ if (SOLAR_TERMS[i][0] <= md) idx = i;
+}
+ const cur = idx >= 0? SOLAR_TERMS[idx]: SOLAR_TERMS[SOLAR_TERMS.length - 1];
+ const season = cur[2];
+ const startEntry = SOLAR_TERMS.find((t) => t[1] === SEASON_START_TERM[season]);
+ const startYear = season === '冬' && md < 1107? date.getFullYear() - 1: date.getFullYear();
+ const startDate = new Date(startYear, Math.floor(startEntry[0] / 100) - 1, startEntry[0] % 100);
+ const days = Math.floor((date.getTime() - startDate.getTime()) / 86400000);
+ return { season, term: cur[1], phase: days >= 0 && days < 21? '初': ''};
+};
+
+export const daypartOf = (hour) => {
+ if (hour < 5) return '深夜';
+ if (hour < 7) return '清晨';
+ if (hour < 11) return '上午';
+ if (hour < 13) return '正午';
+ if (hour < 17) return '午后';
+ if (hour < 19) return '傍晚';
+ if (hour < 23) return '夜晚';
+ return '深夜';
+};
+
+// Open-Meteo 的 WMO weather_code 转中文天气。
+export const weatherText = (code, isDay = true) => {
+ if (code === 0) return isDay? '晴': '晴夜';
+ if (code === 1 || code === 2) return '多云';
+ if (code === 3) return '阴';
+ if (code === 45 || code === 48) return '雾';
+ if (code === 51 || code === 53 || code === 55) return '毛毛雨';
+ if (code === 56 || code === 57) return '冻毛毛雨';
+ if (code === 61) return '小雨';
+ if (code === 63) return '中雨';
+ if (code === 65) return '大雨';
+ if (code === 66 || code === 67) return '冻雨';
+ if (code === 71) return '小雪';
+ if (code === 73) return '中雪';
+ if (code === 75) return '大雪';
+ if (code === 77) return '雪粒';
+ if (code === 80 || code === 81 || code === 82) return '阵雨';
+ if (code === 85 || code === 86) return '阵雪';
+ if (code === 95) return '雷阵雨';
+ if (code === 96 || code === 99) return '雷阵雨伴冰雹';
+ return '';
+};
+
+const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
+
+// 组装「此刻」一句，如：西安，11月7日星期六 18:30，傍晚，初冬（立冬），晴，9°C。weather 为空则省略天气段。
+export const buildNowContext = ({ now, weather = null, city = HOME_CITY.name}) => {
+ const s = seasonInfo(now);
+ const hh = String(now.getHours()).padStart(2, '0');
+ const mm = String(now.getMinutes()).padStart(2, '0');
+ const parts = [
+ `${city}，${now.getMonth() + 1}月${now.getDate()}日星期${WEEKDAYS[now.getDay()]} ${hh}:${mm}`,
+ daypartOf(now.getHours()),
+ `${s.phase}${s.season}（${s.term}）`,
+];
+ if (weather) {
+ const w = weatherText(weather.code, weather.isDay);
+ if (w) parts.push(w);
+ if (typeof weather.temp === 'number') parts.push(`${weather.temp}°C`);
+}
+ return parts.join('，') + '。';
+};
+
 // ---------------------------------------------------------------- 提示词
 
 // 组装 system/user 提示词：画像 + 场景参数 + 已播避重 + 负反馈；要的歌比 batchSize 多要冗余量。
 // F9 起不再带排除名单：EXCLUSIONS 只是口味分析防画像混淆的工具，不是聆听禁令，符合画像的歌手照常可选。
-export const buildPrompt = ({ scene, history = [], profile = PROFILE, extra = 8 }) => {
+export const buildPrompt = ({ scene, history = [], profile = PROFILE, extra = 8, context = '' }) => {
     const batchSize = scene.batchSize || 15;
     const count = batchSize + extra;
     const heard = history.filter((h) => h.v !== 'neg').slice(-AVOID_HISTORY);
@@ -134,6 +220,7 @@ export const buildPrompt = ({ scene, history = [], profile = PROFILE, extra = 8 
         '',
         `【场景】${scene.label}：能量曲线「${scene.energyCurve}」；节奏「${scene.tempo}」；人声「${scene.vocalRatio}」；情绪：${(scene.mood || []).join('、')}。`,
         '',
+...(context? [`${context}`, '选歌的氛围可以呼应此刻的时间、天气与季节（雨夜偏温暖、黄昏偏舒展、寒夜要暖意、盛夏要清凉），但这只是调味：画像契合与场景能量曲线优先，不得为呼应天气牺牲这两者。', '']: []),
         '【口味画像】' + profile.summary,
         `特质：${(profile.traits || []).join('；')}。`,
         `核心歌手：${(profile.coreSingers || []).join('、')}（不必只选他们，但他们是定调参照）。`,
@@ -248,7 +335,29 @@ export const createRadio = (deps) => {
         restoreMissLogged: false,
     };
 
-    const say = (message, type = 'info') => {
+    // 此刻上下文（西安天气＋时间季节）：30 分钟缓存；天气拉不到就只用时间季节，绝不挡生成。
+ let contextCache = { at: 0, text: ''};
+ const nowContext = async () => {
+ const now = new Date();
+ if (contextCache.text && now.getTime() - contextCache.at < 30 * 60 * 1000) return contextCache.text;
+ let weather = null;
+ try {
+ const url = `https://api.open-meteo.com/v1/forecast?latitude=${HOME_CITY.lat}&longitude=${HOME_CITY.lon}&current=temperature_2m,weather_code,is_day&timezone=Asia%2FShanghai`;
+ const resp = await deps.fetch(url, { timeoutMs: 5000});
+ if (resp && resp.ok) {
+ const cur = resp.json()?.current;
+ if (cur && typeof cur.weather_code === 'number') {
+ weather = { code: cur.weather_code, isDay: cur.is_day === 1, temp: typeof cur.temperature_2m === 'number'? Math.round(cur.temperature_2m): null};
+}
+}
+} catch (error) {
+ log?.warn?.('[ai-scene-radio] 天气获取失败，只用时间季节', error);
+}
+ const text = buildNowContext({ now, weather});
+ contextCache = { at: now.getTime() - (weather? 0: 25 * 60 * 1000), text};
+ return text;
+};
+ const say = (message, type = 'info') => {
         if (state.disposed) return;
         try {
             toast?.(message, { type });
@@ -369,7 +478,8 @@ export const createRadio = (deps) => {
         const base = (String(conf.gatewayBase ?? '').trim() || DEFAULT_GATEWAY).replace(/\/+$/, '');
         const model = String(conf.model || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
         const reasoningEffort = String(conf.reasoningEffort ?? '').trim() || DEFAULT_REASONING_EFFORT;
-        const prompt = buildPrompt({ scene, history });
+        const context = await nowContext().catch(() => '');
+        const prompt = buildPrompt({ scene, history, context });
         const response = await deps.fetch(`${base}/chat/completions`, {
             method: 'POST',
             headers: {

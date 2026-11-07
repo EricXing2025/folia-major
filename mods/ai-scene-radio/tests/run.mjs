@@ -17,6 +17,10 @@ import {
     DIAG_STORAGE_KEY,
     DEFAULT_GATEWAY,
     DEFAULT_MODEL,
+ seasonInfo,
+ daypartOf,
+ weatherText,
+ buildNowContext,
 } from '../radio.mjs';
 import { SCENES } from '../configData.mjs';
 import activate from '../client.mjs';
@@ -147,6 +151,9 @@ const makeDeps = (over = {}) => {
     const fetchImpl = over.fetch || (async () => llmResponse([]));
     const deps = {
         fetch: async (url, init) => {
+            if (String(url).includes('api.open-meteo.com')) {
+                return { ok: true, status: 200, json: () => ({ current: { temperature_2m: 9, weather_code: 0, is_day: 1 } }) };
+            }
             record.fetches.push({ url, init });
             return fetchImpl(url, init);
         },
@@ -219,6 +226,41 @@ test('buildPrompt: 画像 + 场景 + 避重 + 负反馈', () => {
     assert.ok(system.length > 0);
 });
 
+test('seasonInfo/daypartOf/weatherText: 季节时段与天气映射', () => {
+ const nov7 = seasonInfo(new Date(2026, 10, 7));
+ assert.equal(nov7.term, '立冬');
+ assert.equal(nov7.season, '冬');
+ assert.equal(nov7.phase, '初');
+ const aug20 = seasonInfo(new Date(2026, 7, 20));
+ assert.equal(aug20.season, '秋');
+ assert.equal(aug20.phase, '初');
+ const jan15 = seasonInfo(new Date(2026, 0, 15));
+ assert.equal(jan15.season, '冬');
+ assert.equal(jan15.term, '小寒');
+ assert.equal(daypartOf(8), '上午');
+ assert.equal(daypartOf(12), '正午');
+ assert.equal(daypartOf(18), '傍晚');
+ assert.equal(daypartOf(23), '深夜');
+ assert.equal(weatherText(0, true), '晴');
+ assert.equal(weatherText(0, false), '晴夜');
+ assert.equal(weatherText(61), '小雨');
+ assert.equal(weatherText(95), '雷阵雨');
+});
+
+test('buildNowContext + buildPrompt 此刻段', () => {
+ const text = buildNowContext({ now: new Date(2026, 10, 7, 18, 30), weather: { code: 0, isDay: false, temp: 9}});
+ assert.ok(text.includes('西安'));
+ assert.ok(text.includes('初冬（立冬）'));
+ assert.ok(text.includes('傍晚'));
+ assert.ok(text.includes('晴夜'));
+ assert.ok(text.includes('9°C'));
+ const scene = SCENES.find((s) => s.id === 'work-afternoon');
+ const withCtx = buildPrompt({ scene, history: [], context: text});
+ assert.ok(withCtx.user.includes('西安，11月7日'));
+ assert.ok(withCtx.user.includes('只是调味'));
+ const without = buildPrompt({ scene, history: []});
+ assert.ok(!without.user.includes('西安，11月7日'));
+});
 test('titleScore/artistScore: 确切版本分级', () => {
     assert.equal(titleScore('红豆', '红豆'), 3);
     assert.equal(titleScore('红豆', '红豆 (Live)'), 2);
