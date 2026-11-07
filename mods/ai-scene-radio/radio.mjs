@@ -11,8 +11,8 @@ export const DIAG_STORAGE_KEY = 'aiSceneRadio.diag.v1';
 export const SECRET_KEY = 'apiKey';
 export const DEFAULT_GATEWAY = 'https://trendxai.io/v1';
 export const DEFAULT_MODEL = 'gpt-6-luna';
-// Eric 2026-11-07 定：电台生成改走 gpt-6-luna，推理强度 max（网关字段 reasoning_effort，实测生效）。
-export const DEFAULT_REASONING_EFFORT = 'max';
+// Eric 2026-11-07 定：电台生成改走 gpt-6-luna＋推理档（网关字段 reasoning_effort）。原定 max 实测不可行：真实提示词在网关侧 126 秒被 Cloudflare 524 掐断、宿主 net.fetch 硬顶又是 60 秒；high 档实测 30.7 秒返回合格候选，为本链路可用的最高档（2026-11-07 组织者实测后改定）。
+export const DEFAULT_REASONING_EFFORT = 'high';
 // trendxai 网关躲在 Cloudflare 后面：无浏览器 UA 的请求会被 403（error 1010）拒绝。
 export const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
@@ -385,7 +385,7 @@ export const createRadio = (deps) => {
                 ],
                 temperature: 0.9,
             }),
-            timeoutMs: 45000,
+            timeoutMs: 60000,
         });
         if (!response.ok) throw new Error(`llm-http-${response.status}`);
         const payload = response.json();
