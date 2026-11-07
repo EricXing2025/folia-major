@@ -21,6 +21,7 @@ import {
  daypartOf,
  weatherText,
  buildNowContext,
+ resolveScene,
 } from '../radio.mjs';
 import { SCENES } from '../configData.mjs';
 import activate from '../client.mjs';
@@ -208,7 +209,7 @@ test('dedupeCandidates: 大小写/空白不敏感去重', () => {
 });
 
 test('buildPrompt: 画像 + 场景 + 避重 + 负反馈', () => {
-    const scene = SCENES.find((s) => s.id === 'work-morning');
+    const scene = SCENES.find((s) => s.id === 'work');
     const history = [
         { t: '红豆', a: '王菲', v: 'pos' },
         { t: '讨厌歌', a: '某人', v: 'neg' },
@@ -254,12 +255,32 @@ test('buildNowContext + buildPrompt 此刻段', () => {
  assert.ok(text.includes('傍晚'));
  assert.ok(text.includes('晴夜'));
  assert.ok(text.includes('9°C'));
- const scene = SCENES.find((s) => s.id === 'work-afternoon');
+ const scene = SCENES.find((s) => s.id === 'work');
  const withCtx = buildPrompt({ scene, history: [], context: text});
  assert.ok(withCtx.user.includes('西安，11月7日'));
  assert.ok(withCtx.user.includes('只是调味'));
  const without = buildPrompt({ scene, history: []});
  assert.ok(!without.user.includes('西安，11月7日'));
+});
+test('resolveScene: 工作场景按时段自动套参数', () => {
+    const work = SCENES.find((s) => s.id === 'work');
+    assert.ok(resolveScene(work, new Date(2026, 10, 7, 9, 0)).energyCurve.includes('提神'));
+    assert.ok(resolveScene(work, new Date(2026, 10, 7, 15, 0)).energyCurve.includes('防困'));
+    assert.ok(resolveScene(work, new Date(2026, 10, 7, 21, 0)).energyCurve.includes('降速'));
+    assert.ok(resolveScene(work, new Date(2026, 10, 7, 2, 0)).energyCurve.includes('深夜'));
+    const reading = SCENES.find((s) => s.id === 'reading');
+    assert.equal(resolveScene(reading, new Date(2026, 10, 7, 9, 0)), reading);
+    assert.deepEqual(SCENES.map((s) => s.id), ['work', 'reading', 'free']);
+});
+
+test('buildPrompt allowRepeats: 随心听不避熟歌、工作场景避', () => {
+    const history = [{ t: '红豆', a: '王菲', v: 'heard' }];
+    const free = SCENES.find((s) => s.id === 'free');
+    const freePrompt = buildPrompt({ scene: free, history });
+    assert.ok(!freePrompt.user.includes('最近放过'));
+    const work = SCENES.find((s) => s.id === 'work');
+    const workPrompt = buildPrompt({ scene: work, history });
+    assert.ok(workPrompt.user.includes('最近放过'));
 });
 test('titleScore/artistScore: 确切版本分级', () => {
     assert.equal(titleScore('红豆', '红豆'), 3);
@@ -336,13 +357,13 @@ test('全链：LLM→核验→replaceQueue→playQueueItem→批次入库且不�
         omni, playback, storage,
     });
     const radio = createRadio(deps);
-    const ok = await radio.runScene('work-morning');
+    const ok = await radio.runScene('work');
     assert.equal(ok, 'ok');
     assert.equal(playback._calls.replace.length, 1);
     assert.deepEqual(playback._calls.replace[0].titles, ['红豆', '阴天', '遇见', '活埋 (2026女生新版)']);
     assert.equal(playback._calls.playItem[0], 0);
     const saved = storage._map.get(STORAGE_KEY);
-    assert.ok(saved.batches['work-morning'].length === 4);
+    assert.ok(saved.batches['work'].length === 4);
     assert.equal(JSON.stringify(saved).includes('"ref"'), false, 'storage 不得含 ref');
     // LLM 请求带 UA 与 Authorization
     assert.equal(record.fetches.length, 1);
@@ -357,7 +378,7 @@ test('失败链：LLM 拒→有快照→resolveSongs 复活送播', async () => 
     const storage = fakeStorage();
     storage._map.set(STORAGE_KEY, {
         history: [],
-        batches: { 'work-morning': [{ s: 'qq', i: '99', t: '红豆', a: '王菲' }, { s: 'qq', i: '98', t: '阴天', a: '莫文蔚' }, { s: 'qq', i: '97', t: '遇见', a: '孙燕姿' }] },
+        batches: { 'work': [{ s: 'qq', i: '99', t: '红豆', a: '王菲' }, { s: 'qq', i: '98', t: '阴天', a: '莫文蔚' }, { s: 'qq', i: '97', t: '遇见', a: '孙燕姿' }] },
     });
     const omni = fakeOmni({
         resolve: (key) => ({ status: 'found', song: song(key.id, { 99: '红豆', 98: '阴天', 97: '遇见' }[key.id], { 99: '王菲', 98: '莫文蔚', 97: '孙燕姿' }[key.id]) }),
@@ -368,7 +389,7 @@ test('失败链：LLM 拒→有快照→resolveSongs 复活送播', async () => 
         omni, playback, storage,
     });
     const radio = createRadio(deps);
-    const ok = await radio.runScene('work-morning');
+    const ok = await radio.runScene('work');
     assert.equal(ok, 'ok');
     assert.equal(playback._calls.replace.length, 1);
     assert.equal(playback._calls.replace[0].count, 3);
@@ -382,7 +403,7 @@ test('失败链：累积镜像超 50 条时快照腿只重播最近一批（复�
     // 且回放的是整场而非「上一批」。修正为取镜像末尾 batchSize 条。
     storage._map.set(STORAGE_KEY, {
         history: [],
-        batches: { 'work-morning': Array.from({ length: 60 }, (_, i) => ({ s: 'qq', i: `${i + 1}`, t: `歌${i + 1}`, a: '歌手' })) },
+        batches: { 'work': Array.from({ length: 60 }, (_, i) => ({ s: 'qq', i: `${i + 1}`, t: `歌${i + 1}`, a: '歌手' })) },
     });
     const seen = [];
     const omni = fakeOmni({
@@ -394,7 +415,7 @@ test('失败链：累积镜像超 50 条时快照腿只重播最近一批（复�
         omni, playback, storage,
     });
     const radio = createRadio(deps);
-    const ok = await radio.runScene('work-morning');
+    const ok = await radio.runScene('work');
     assert.equal(ok, 'ok');
     assert.deepEqual(seen, Array.from({ length: 15 }, (_, i) => `${46 + i}`), '只解析镜像末尾一批 15 首');
     assert.equal(playback._calls.replace[0].count, 15);
@@ -415,7 +436,7 @@ test('失败链：无快照→核心歌手降级送播', async () => {
         omni, playback,
     });
     const radio = createRadio(deps);
-    const ok = await radio.runScene('work-morning');
+    const ok = await radio.runScene('work');
     assert.equal(ok, 'ok');
     assert.equal(playback._calls.replace[0].count, 3);
     assert.ok(record.toasts.some((t) => t.message.includes('核心歌手')));
@@ -429,10 +450,10 @@ test('失败链：全空→toast 指向同名歌单', async () => {
         omni, playback,
     });
     const radio = createRadio(deps);
-    const ok = await radio.runScene('work-morning');
+    const ok = await radio.runScene('work');
     assert.equal(ok, 'fail');
     const last = record.toasts[record.toasts.length - 1];
-    assert.ok(last.message.includes('工作·上午'), `toast 应含同名歌单名: ${last.message}`);
+    assert.ok(last.message.includes('工作·下午'), `toast 应含同名歌单名: ${last.message}`);
     assert.equal(last.type, 'error');
 });
 
@@ -444,7 +465,7 @@ test('无 API key → 直接走兜底，不发 LLM 请求', async () => {
         playback,
     });
     const radio = createRadio(deps);
-    await radio.runScene('work-morning');
+    await radio.runScene('work');
     assert.equal(record.fetches.length, 0);
     assert.ok(record.toasts.some((t) => t.message.includes('API Key')));
 });
@@ -476,7 +497,7 @@ test('续单：剩 ≤3 触发，旧歌保留在前、新歌接尾', async () =>
     });
     const radio = createRadio(deps);
     // 先正常开播一批（3 首），queuedKeys 入库
-    await radio.runScene('driving');
+    await radio.runScene('free');
     assert.equal(playback._calls.replace.length, 1);
     assert.deepEqual(playback._calls.replace[0].titles, ['红豆', '阴天', '遇见']);
     // 当前 3 首队列、currentIndex 0 → 剩 2 ≤3，触发续单
@@ -505,7 +526,7 @@ test('续单：队列里电台的歌全没了 → 停用不再生成', async () 
         omni, playback,
     });
     const radio = createRadio(deps);
-    await radio.runScene('driving');
+    await radio.runScene('free');
     // 用户把队列整个换掉（不含电台歌）
     playback._songs().splice(0, playback._songs().length, song(9, '别人的歌', '某人'));
     radio._state.lastGenAt = 0;
@@ -538,7 +559,7 @@ test('已播避重：history 里的歌不再进候选核验结果', async () => 
     const playback = fakePlayback();
     const storage = fakeStorage();
     storage._map.set(STORAGE_KEY, {
-        history: [{ t: '红豆', a: '王菲', v: 'pos', sc: 'work-morning', at: 1 }],
+        history: [{ t: '红豆', a: '王菲', v: 'pos', sc: 'work', at: 1 }],
         batches: {},
     });
     const omni = makeOmniFor({
@@ -557,7 +578,7 @@ test('已播避重：history 里的歌不再进候选核验结果', async () => 
         omni, playback, storage,
     });
     const radio = createRadio(deps);
-    await radio.runScene('work-morning');
+    await radio.runScene('work');
     assert.deepEqual(playback._calls.replace[0].titles, ['阴天', '遇见', '爱情']);
 });
 
@@ -578,11 +599,11 @@ test('瞬态拒绝：transition 等待重试后成功，不走兜底', async () 
         omni, playback,
     });
     const radio = createRadio(deps);
-    const result = await radio.runScene('work-morning');
+    const result = await radio.runScene('work');
     assert.equal(result, 'ok');
     assert.equal(playback._calls.replace.length, 3); // 两次拒绝 + 一次成功
     assert.deepEqual(playback._songs().map((s) => s.title), ['红豆', '阴天', '遇见']);
-    assert.equal(radio._state.activeSceneId, 'work-morning');
+    assert.equal(radio._state.activeSceneId, 'work');
 });
 
 test('生成中再点同场景 → busy，不重入', async () => {
@@ -599,8 +620,8 @@ test('生成中再点同场景 → busy，不重入', async () => {
         omni, playback,
     });
     const radio = createRadio(deps);
-    const first = radio.runScene('work-morning');
-    const second = await radio.runScene('work-morning');
+    const first = radio.runScene('work');
+    const second = await radio.runScene('work');
     assert.equal(second, 'busy');
     release();
     await first;
@@ -614,7 +635,7 @@ test('全失败 → activeSceneId 回滚，不残留未开播场景', async () =
         playback,
     });
     const radio = createRadio(deps);
-    const result = await radio.runScene('work-morning');
+    const result = await radio.runScene('work');
     assert.equal(result, 'fail');
     assert.equal(radio._state.activeSceneId, null);
 });
@@ -637,7 +658,7 @@ test('续单：>500 长队列分页读全，旧歌不丢尾', async () => {
         omni, playback,
     });
     const radio = createRadio(deps);
-    radio._state.activeSceneId = 'driving';
+    radio._state.activeSceneId = 'free';
     radio._state.queuedKeys.add('id:qq:1'); // 假装红豆是本电台排进去的
     await radio.onQueueChanged();
     const cont = playback._calls.replace[0];
@@ -646,14 +667,12 @@ test('续单：>500 长队列分页读全，旧歌不丢尾', async () => {
     assert.deepEqual(cont.titles.slice(-3), ['笑忘书', '至少还有你', '爱情']);
 });
 
-test('五场景 profile 表：10 段与截止频率、动态和空间参数', () => {
+test('三场景 profile 表：10 段与截止频率、动态和空间参数', () => {
     assert.deepEqual(Object.keys(SCENE_PROFILES).sort(), SCENES.map(scene => scene.id).sort());
     const expected = [
         [[0, 1, 0, 1, 3, 3, 2, 1, 1, 0], 60, 20000, 40, 90, 5],
-        [[0, 1, 0, 1, 3, 3, 2, 1, 1, 0], 60, 20000, 40, 90, 5],
-        [[0, 1, 0, 1, 3, 3, 2, 0, 0, -1], 60, 20000, 40, 90, 8],
-        [[1, 3, 2, 1, 2, 2, 1, 1, 0, 0], 40, 20000, 30, 100, 0],
         [[0, 0, 0, 0, 1, 1, 0, 0, 0, 0], 30, 16000, 15, 80, 0],
+        [[1, 3, 2, 1, 2, 2, 1, 1, 0, 0], 40, 20000, 30, 100, 0],
     ];
     assert.deepEqual(SCENES.map(scene => {
         const p = SCENE_PROFILES[scene.id];
@@ -682,8 +701,8 @@ test('音效仅在成功开播且设置开启时应用，队列接管、关闭�
         settings: () => ({ linkAudioFx: enabled }),
     });
     const radio = createRadio({ ...deps, audioFx });
-    assert.equal(await radio.runScene('work-morning'), 'ok');
-    assert.deepEqual(effects, [['apply', SCENE_PROFILES['work-morning']]]);
+    assert.equal(await radio.runScene('work'), 'ok');
+    assert.deepEqual(effects, [['apply', SCENE_PROFILES['work']]]);
     const snapshot = playback.getQueue();
     await playback.replaceQueue([song(99, 'Other', 'Someone')], { expectedVersion: snapshot.version });
     await radio.onQueueChanged();
@@ -691,7 +710,7 @@ test('音效仅在成功开播且设置开启时应用，队列接管、关闭�
     radio.dispose();
     enabled = false;
     const disabled = createRadio({ ...deps, playback: fakePlayback(), audioFx });
-    assert.equal(await disabled.runScene('work-afternoon'), 'ok');
+    assert.equal(await disabled.runScene('work'), 'ok');
     assert.equal(effects.filter(effect => effect[0] === 'apply').length, 1);
     disabled.dispose();
     assert.deepEqual(effects.at(-1), ['clear']);
@@ -896,7 +915,7 @@ test('建单被拒回滚只收走自己的预留：在途期间别的实例写�
             createPlaylist: async () => {
                 // 另一个实例在请求在途期间写入的新台账：同一场景仍是 pending，另有别键。
                 storage._map.set(PLAYLIST_IDS_KEY, {
-                    'account-A': { [scene.id]: 'pending', 'work-evening': '777' },
+                    'account-A': { [scene.id]: 'pending', 'reading': '777' },
                     'account-B': { 'x': '1' },
                 });
                 throw Object.assign(new Error('unsupported'), { code: 'NOT_SUPPORTED' });
@@ -907,7 +926,7 @@ test('建单被拒回滚只收走自己的预留：在途期间别的实例写�
     sync.save(scene, [song(1, '红豆', '王菲')]);
     await sync.settled();
     assert.deepEqual(storage._map.get(PLAYLIST_IDS_KEY), {
-        'account-A': { 'work-evening': '777' },
+        'account-A': { 'reading': '777' },
         'account-B': { 'x': '1' },
     });
 });
@@ -952,7 +971,7 @@ test('歌单封面：台账命中的场景回 coverUrl，pending、他账号与�
     const scene = SCENES[0];
     const storage = fakeStorage();
     storage._map.set(PLAYLIST_IDS_KEY, {
-        'account-A': { [scene.id]: '123', 'work-evening': 'pending' },
+        'account-A': { [scene.id]: '123', 'reading': 'pending' },
         'account-B': { 'x': '999' },
     });
     const library = {
@@ -987,7 +1006,7 @@ test('歌单 bridge 谓词同步拒绝时仅记日志，不会把开播后的队
         ]),
     });
     const radio = createRadio({ ...deps, playlistSync: sync });
-    assert.equal(await radio.runScene('work-morning'), 'ok');
+    assert.equal(await radio.runScene('work'), 'ok');
     assert.equal(playback._calls.replace.length, 1);
     assert.equal(warns.length, 1);
     assert.ok(record.toasts.every(toast => !toast.message.includes('生成失败')));
@@ -996,7 +1015,7 @@ test('歌单 bridge 谓词同步拒绝时仅记日志，不会把开播后的队
 test('失败链：已记录的场景歌单先于 v1 快照，旧链在歌单不可用时不变', async () => {
     const playback = fakePlayback();
     const storage = fakeStorage();
-    storage._map.set(STORAGE_KEY, { history: [], batches: { 'work-morning': [
+    storage._map.set(STORAGE_KEY, { history: [], batches: { 'work': [
         { s: 'qq', i: '4', t: '旧歌', a: '王菲' }, { s: 'qq', i: '5', t: '旧歌', a: '林忆莲' }, { s: 'qq', i: '6', t: '旧歌', a: '莫文蔚' },
     ] } });
     const order = [];
@@ -1007,13 +1026,13 @@ test('失败链：已记录的场景歌单先于 v1 快照，旧链在歌单不�
     const playlistSync = { tracks: async () => [{ source: 'qq', id: '1' }, { source: 'qq', id: '2' }, { source: 'qq', id: '3' }] };
     const { deps } = makeDeps({ omni, playback });
     const radio = createRadio({ ...deps, storage, playlistSync });
-    assert.equal(await radio.runScene('work-morning'), 'ok');
+    assert.equal(await radio.runScene('work'), 'ok');
     assert.deepEqual(order, ['1', '2', '3']);
     assert.deepEqual(playback._calls.replace[0].titles, ['场景歌单', '场景歌单', '场景歌单']);
     // 歌单复活已用掉本场景的复活额度；清额度（等同中间成功生成了一批）后快照腿才接得上。
     storage._map.get(STORAGE_KEY).revivals = {};
     const second = createRadio({ ...deps, storage, playback: fakePlayback(), playlistSync: { tracks: async () => [] } });
-    assert.equal(await second.runScene('work-morning'), 'ok');
+    assert.equal(await second.runScene('work'), 'ok');
     assert.deepEqual(order.slice(3), ['4', '5', '6']);
 });
 
@@ -1040,9 +1059,9 @@ test('三个 namespace 分别缺失时 client 可启动原 v1 命令和路径', 
         };
         delete folium[missing];
         activate(folium);
-        assert.equal(commands.size, 6, missing);
-        assert.ok(commands.has('play-work-morning'), missing);
-        const result = await commands.get('play-work-morning').run();
+        assert.equal(commands.size, 4, missing);
+        assert.ok(commands.has('play-work'), missing);
+        const result = await commands.get('play-work').run();
         assert.match(result.message, /生成失败/, missing);
         disposers.forEach(dispose => dispose());
     }
@@ -1101,7 +1120,7 @@ test('状态恢复：队列主体命中已存批次 → 接管且队尾立即续
     storage._map.set(STORAGE_KEY, {
         history: [],
         batches: {
-            driving: batchSongs.map((s) => ({ s: 'qq', i: s.id, t: s.title, a: s.artist })),
+            free: batchSongs.map((s) => ({ s: 'qq', i: s.id, t: s.title, a: s.artist })),
         },
     });
     const omni = makeOmniFor({
@@ -1119,14 +1138,14 @@ test('状态恢复：队列主体命中已存批次 → 接管且队尾立即续
     });
     const radio = createRadio(deps);
     await radio.restore();
-    assert.equal(radio._state.activeSceneId, 'driving');
+    assert.equal(radio._state.activeSceneId, 'free');
     assert.equal(record.fetches.length, 1, '恢复后队尾应立即发起一次续单');
     const cont = playback._calls.replace[0];
     assert.deepEqual(cont.titles.slice(0, 8), batchSongs.map((s) => s.title));
     assert.deepEqual(cont.titles.slice(8), ['笑忘书', '至少还有你', '爱情']);
     // F11：续单后批次是整场累积镜像（旧 8 + 新 3），不是只存最后一截。
     assert.deepEqual(
-        storage._map.get(STORAGE_KEY).batches.driving.map((e) => e.i),
+        storage._map.get(STORAGE_KEY).batches.free.map((e) => e.i),
         [...batchSongs.map((s) => s.id), '9', '10', '11'],
         '续单后 batches 应为旧批次 + 本次追加的累积镜像',
     );
@@ -1140,7 +1159,7 @@ test('状态恢复：队列主体不是电台批次 → 不接管不发 LLM', as
     const storage = fakeStorage();
     storage._map.set(STORAGE_KEY, {
         history: [],
-        batches: { driving: [{ s: 'qq', i: '1', t: '红豆', a: '王菲' }, { s: 'qq', i: '2', t: '阴天', a: '莫文蔚' }, { s: 'qq', i: '3', t: '遇见', a: '孙燕姿' }] },
+        batches: { free: [{ s: 'qq', i: '1', t: '红豆', a: '王菲' }, { s: 'qq', i: '2', t: '阴天', a: '莫文蔚' }, { s: 'qq', i: '3', t: '遇见', a: '孙燕姿' }] },
     });
     const { deps, record } = makeDeps({ playback, storage });
     const radio = createRadio(deps);
@@ -1172,7 +1191,7 @@ test('F11：首批 → 续单一次 → 新实例（同 storage）restore 必须
         omni, playback, storage,
     });
     const radio1 = createRadio(deps);
-    assert.equal(await radio1.runScene('driving'), 'ok');
+    assert.equal(await radio1.runScene('free'), 'ok');
     assert.equal(playback._songs().length, 8);
     playback._setIndex(5); // 剩 2 ≤3 → 续单
     radio1._state.lastGenAt = 0;
@@ -1182,7 +1201,7 @@ test('F11：首批 → 续单一次 → 新实例（同 storage）restore 必须
     const radio2 = createRadio({ ...deps });
     playback._setIndex(3); // 显示歌是电台歌：restore 的第三条件满足
     await radio2.restore();
-    assert.equal(radio2._state.activeSceneId, 'driving', '续单过的累积镜像应能接管');
+    assert.equal(radio2._state.activeSceneId, 'free', '续单过的累积镜像应能接管');
     // 命中 11/11 ≥6 且 100%：接管后若队尾会续单——这里剩 7 未触发，只查接管本身。
     assert.equal(record.fetches.length, 2, '接管时离队尾还远，不再发 LLM');
 });
@@ -1192,7 +1211,7 @@ test('F11：累积镜像上限 60——续单追加后只留最近 60 首', asyn
     const oldSongs = oldEntries.map((e) => song(e.i, e.t, e.a));
     const playback = fakePlayback({ items: oldSongs, currentIndex: 56 }); // 剩 3 ≤3 → 续单
     const storage = fakeStorage();
-    storage._map.set(STORAGE_KEY, { history: [], batches: { driving: oldEntries } });
+    storage._map.set(STORAGE_KEY, { history: [], batches: { free: oldEntries } });
     const omni = makeOmniFor({
         新1: [song(101, '新1', '王菲')],
         新2: [song(102, '新2', '王菲')],
@@ -1207,10 +1226,10 @@ test('F11：累积镜像上限 60——续单追加后只留最近 60 首', asyn
         omni, playback, storage,
     });
     const radio = createRadio(deps);
-    radio._state.activeSceneId = 'driving';
+    radio._state.activeSceneId = 'free';
     radio._state.queuedKeys.add('id:qq:1'); // 队列里的旧批歌仍认作电台的
     await radio.onQueueChanged();
-    const saved = storage._map.get(STORAGE_KEY).batches.driving;
+    const saved = storage._map.get(STORAGE_KEY).batches.free;
     assert.equal(saved.length, 60, '累积镜像封顶 60');
     assert.equal(saved[0].i, '4', '最旧的 3 首被裁掉');
     assert.deepEqual(saved.slice(-3).map((e) => e.i), ['101', '102', '103'], '最新追加在镜像尾部');
@@ -1227,7 +1246,7 @@ test('F12：用户 5 首小队列 3 首重合 → 不接管', async () => {
     const storage = fakeStorage();
     storage._map.set(STORAGE_KEY, {
         history: [],
-        batches: { driving: [
+        batches: { free: [
             { s: 'qq', i: '1', t: '电台歌1', a: '王菲' },
             { s: 'qq', i: '2', t: '电台歌2', a: '王菲' },
             { s: 'qq', i: '3', t: '电台歌3', a: '王菲' },
@@ -1247,12 +1266,12 @@ test('F12：电台队列 15/15 → 接管', async () => {
     const storage = fakeStorage();
     storage._map.set(STORAGE_KEY, {
         history: [],
-        batches: { driving: batchSongs.map((s) => ({ s: 'qq', i: s.id, t: s.title, a: s.artist })) },
+        batches: { free: batchSongs.map((s) => ({ s: 'qq', i: s.id, t: s.title, a: s.artist })) },
     });
     const { deps, record } = makeDeps({ playback, storage });
     const radio = createRadio(deps);
     await radio.restore();
-    assert.equal(radio._state.activeSceneId, 'driving');
+    assert.equal(radio._state.activeSceneId, 'free');
     assert.equal(record.fetches.length, 0, '剩 10 首未到队尾，接管不触发续单');
 });
 
@@ -1262,12 +1281,12 @@ test('F12：15/15 电台队列且当前无在播歌 → 接管', async () => {
     const storage = fakeStorage();
     storage._map.set(STORAGE_KEY, {
         history: [],
-        batches: { driving: batchSongs.map((s) => ({ s: 'qq', i: s.id, t: s.title, a: s.artist })) },
+        batches: { free: batchSongs.map((s) => ({ s: 'qq', i: s.id, t: s.title, a: s.artist })) },
     });
     const { deps, record } = makeDeps({ playback, storage });
     const radio = createRadio(deps);
     await radio.restore();
-    assert.equal(radio._state.activeSceneId, 'driving', '无在播歌时第三条件按 spec 放行');
+    assert.equal(radio._state.activeSceneId, 'free', '无在播歌时第三条件按 spec 放行');
     assert.equal(record.fetches.length, 0);
 });
 
@@ -1279,7 +1298,7 @@ test('F12：10 首队列命中 6（过数量闸但 0.6<2/3）→ 不接管', asy
     const storage = fakeStorage();
     storage._map.set(STORAGE_KEY, {
         history: [],
-        batches: { driving: batchSongs.map((s) => ({ s: 'qq', i: s.id, t: s.title, a: s.artist })) },
+        batches: { free: batchSongs.map((s) => ({ s: 'qq', i: s.id, t: s.title, a: s.artist })) },
     });
     const { deps, record } = makeDeps({ playback, storage });
     const radio = createRadio(deps);
@@ -1298,12 +1317,12 @@ test('F12：30 首队列命中 20（累积镜像）→ 接管', async () => {
         ...batchSongs.map((s) => ({ s: 'qq', i: s.id, t: s.title, a: s.artist })),
         ...Array.from({ length: 10 }, (_, i) => ({ s: 'qq', i: `${i + 21}`, t: `已播歌${i + 21}`, a: '王菲' })),
     ];
-    storage._map.set(STORAGE_KEY, { history: [], batches: { driving: mirror } });
+    storage._map.set(STORAGE_KEY, { history: [], batches: { free: mirror } });
     const { deps } = makeDeps({ playback, storage });
     const radio = createRadio(deps);
     await radio.restore();
     // 命中 20 ≥6、20/30 = 2/3 边界（含）、显示歌（队列第 4 首）在批次身份集内。
-    assert.equal(radio._state.activeSceneId, 'driving');
+    assert.equal(radio._state.activeSceneId, 'free');
 });
 
 test('F12：队列 6 电台 + 3 用户、显示歌是用户歌 → 不接管', async () => {
@@ -1313,7 +1332,7 @@ test('F12：队列 6 电台 + 3 用户、显示歌是用户歌 → 不接管', a
     const storage = fakeStorage();
     storage._map.set(STORAGE_KEY, {
         history: [],
-        batches: { driving: batchSongs.map((s) => ({ s: 'qq', i: s.id, t: s.title, a: s.artist })) },
+        batches: { free: batchSongs.map((s) => ({ s: 'qq', i: s.id, t: s.title, a: s.artist })) },
     });
     const { deps, record } = makeDeps({ playback, storage });
     const radio = createRadio(deps);
@@ -1345,13 +1364,13 @@ test('续单失败 → 升级一次整队新生成（整队替换并开播）', 
         omni, playback,
     });
     const radio = createRadio(deps);
-    radio._state.activeSceneId = 'driving';
+    radio._state.activeSceneId = 'free';
     [1, 2, 3].forEach((id) => radio._state.queuedKeys.add(`id:qq:${id}`));
     await radio.onQueueChanged();
     assert.equal(playback._calls.replace.length, 1, '升级只整队替换一次');
     assert.deepEqual(playback._calls.replace[0].titles, ['笑忘书', '至少还有你', '爱情']);
     assert.equal(playback._calls.playItem[0], 0);
-    assert.equal(radio._state.activeSceneId, 'driving');
+    assert.equal(radio._state.activeSceneId, 'free');
     assert.equal(radio._state.contFails, 0);
 });
 
@@ -1383,18 +1402,18 @@ test('续单 append 被拒 → 同样升级整队新生成', async () => {
         omni, playback,
     });
     const radio = createRadio(deps);
-    radio._state.activeSceneId = 'driving';
+    radio._state.activeSceneId = 'free';
     [1, 2, 3].forEach((id) => radio._state.queuedKeys.add(`id:qq:${id}`));
     await radio.onQueueChanged();
     assert.equal(record.fetches.length, 2, '续单与升级各一次 LLM');
     const last = playback._calls.replace.at(-1);
     assert.deepEqual(last.titles, ['笑忘书', '至少还有你', '爱情'], '升级整队只放新批');
-    assert.equal(radio._state.activeSceneId, 'driving');
+    assert.equal(radio._state.activeSceneId, 'free');
 });
 
 test('升级整队也失败 → 停用续播 + 错误 toast 带环节 + diag 落盘', async () => {
     const storage = fakeStorage();
-    storage._map.set(STORAGE_KEY, { history: [], batches: {}, revivals: { driving: 1 } }); // 复活额度已用尽
+    storage._map.set(STORAGE_KEY, { history: [], batches: {}, revivals: { free: 1 } }); // 复活额度已用尽
     const playback = fakePlayback({
         items: [song(1, '红豆', '王菲'), song(2, '阴天', '莫文蔚'), song(3, '遇见', '孙燕姿')],
         currentIndex: 1,
@@ -1405,7 +1424,7 @@ test('升级整队也失败 → 停用续播 + 错误 toast 带环节 + diag 落
         omni: fakeOmni({ resolve: () => ({ status: 'found', song: song(1, '红豆', '王菲') }) }),
     });
     const radio = createRadio(deps);
-    radio._state.activeSceneId = 'driving';
+    radio._state.activeSceneId = 'free';
     [1, 2, 3].forEach((id) => radio._state.queuedKeys.add(`id:qq:${id}`));
     await radio.onQueueChanged();
     assert.equal(radio._state.activeSceneId, null);
@@ -1414,7 +1433,7 @@ test('升级整队也失败 → 停用续播 + 错误 toast 带环节 + diag 落
     assert.equal(errors.length, 1, `升级失败应恰好一条提示，实际：${JSON.stringify(errors)}`);
     assert.ok(errors[0].includes('停止自动续播') && errors[0].includes('生成环节'), '停用 toast 带失败环节');
     const diag = storage._map.get(DIAG_STORAGE_KEY);
-    assert.equal(diag.scene, 'driving');
+    assert.equal(diag.scene, 'free');
     assert.equal(diag.stage, 'fallback');
     assert.ok(diag.error.startsWith('llm:'), `diag error 应保留根因环节: ${diag.error}`);
     assert.equal(diag.consecutiveFails, 2);
@@ -1425,7 +1444,7 @@ test('复活上限：手动点卡第二次失败不再重播同批', async () =>
     storage._map.set(STORAGE_KEY, {
         history: [],
         batches: {
-            'work-morning': [
+            'work': [
                 { s: 'qq', i: '99', t: '红豆', a: '王菲' },
                 { s: 'qq', i: '98', t: '阴天', a: '莫文蔚' },
                 { s: 'qq', i: '97', t: '遇见', a: '孙燕姿' },
@@ -1442,10 +1461,10 @@ test('复活上限：手动点卡第二次失败不再重播同批', async () =>
         omni, playback, storage,
     });
     const radio = createRadio(deps);
-    assert.equal(await radio.runScene('work-morning'), 'ok'); // 第一次：快照复活
+    assert.equal(await radio.runScene('work'), 'ok'); // 第一次：快照复活
     assert.equal(playback._calls.replace.length, 1);
     radio._state.lastGenAt = 0;
-    assert.equal(await radio.runScene('work-morning'), 'fail'); // 第二次：不许重放
+    assert.equal(await radio.runScene('work'), 'fail'); // 第二次：不许重放
     assert.equal(playback._calls.replace.length, 1, '同批不得重播第二遍');
     assert.ok(record.toasts.some((t) => t.type === 'error' && t.message.includes('不再重放')));
     const diag = storage._map.get(DIAG_STORAGE_KEY);
@@ -1455,7 +1474,7 @@ test('复活上限：手动点卡第二次失败不再重播同批', async () =>
 
 test('diag：真生成成功后清零，失败按环节落盘', async () => {
     const storage = fakeStorage();
-    storage._map.set(DIAG_STORAGE_KEY, { at: 1, scene: 'driving', stage: 'llm', error: 'x', consecutiveFails: 2 });
+    storage._map.set(DIAG_STORAGE_KEY, { at: 1, scene: 'free', stage: 'llm', error: 'x', consecutiveFails: 2 });
     const playback = fakePlayback();
     const omni = makeOmniFor({
         红豆: [song(1, '红豆', '王菲')],
@@ -1471,7 +1490,7 @@ test('diag：真生成成功后清零，失败按环节落盘', async () => {
         omni, playback, storage,
     });
     const radio = createRadio(deps);
-    assert.equal(await radio.runScene('work-morning'), 'ok');
+    assert.equal(await radio.runScene('work'), 'ok');
     assert.equal(storage._map.has(DIAG_STORAGE_KEY), false, '成功后 diag 应清零');
     assert.equal(radio._state.contFails, 0);
 });
@@ -1500,7 +1519,7 @@ test('续单窗口内队列被用户接管 → 停用不抢队（不升级、不
         omni, playback,
     });
     const radio = createRadio(deps);
-    radio._state.activeSceneId = 'driving';
+    radio._state.activeSceneId = 'free';
     [1, 2, 3].forEach((id) => radio._state.queuedKeys.add(`id:qq:${id}`));
     const pending = radio.onQueueChanged();
     for (let i = 0; i < 50 && !record.fetches.length; i += 1) await Promise.resolve(); // 等 LLM 请求发出
@@ -1542,7 +1561,7 @@ test('续单窗口内队列排空 → 升级整队补锅并开播', async () => 
         omni, playback,
     });
     const radio = createRadio(deps);
-    radio._state.activeSceneId = 'driving';
+    radio._state.activeSceneId = 'free';
     [1, 2, 3].forEach((id) => radio._state.queuedKeys.add(`id:qq:${id}`));
     const pending = radio.onQueueChanged();
     for (let i = 0; i < 50 && !record.fetches.length; i += 1) await Promise.resolve();
@@ -1553,7 +1572,7 @@ test('续单窗口内队列排空 → 升级整队补锅并开播', async () => 
     const last = playback._calls.replace.at(-1);
     assert.deepEqual(last.titles, ['笑忘书', '至少还有你', '爱情']);
     assert.equal(playback._calls.playItem[0], 0);
-    assert.equal(radio._state.activeSceneId, 'driving');
+    assert.equal(radio._state.activeSceneId, 'free');
 });
 
 test('续单落地但播放已停止 → 从第一首新歌接起，不静默死', async () => {
@@ -1586,7 +1605,7 @@ test('续单落地但播放已停止 → 从第一首新歌接起，不静默死
         omni, playback,
     });
     const radio = createRadio(deps);
-    radio._state.activeSceneId = 'driving';
+    radio._state.activeSceneId = 'free';
     [1, 2, 3].forEach((id) => radio._state.queuedKeys.add(`id:qq:${id}`));
     const pending = radio.onQueueChanged();
     for (let i = 0; i < 50 && !record.fetches.length; i += 1) await Promise.resolve();
@@ -1618,7 +1637,7 @@ test('续单触发时已暂停 → 只接尾不补播（用户自己停的，不
         omni, playback,
     });
     const radio = createRadio(deps);
-    radio._state.activeSceneId = 'driving';
+    radio._state.activeSceneId = 'free';
     [1, 2, 3].forEach((id) => radio._state.queuedKeys.add(`id:qq:${id}`));
     await radio.onQueueChanged();
     assert.equal(playback._calls.replace.length, 1);
@@ -1656,7 +1675,7 @@ test('F13：生成窗口内用户停在中间某首 → 只接尾不补播', asy
         omni, playback,
     });
     const radio = createRadio(deps);
-    radio._state.activeSceneId = 'driving';
+    radio._state.activeSceneId = 'free';
     [1, 2, 3].forEach((id) => radio._state.queuedKeys.add(`id:qq:${id}`));
     const pending = radio.onQueueChanged();
     for (let i = 0; i < 50 && !record.fetches.length; i += 1) await Promise.resolve();
@@ -1694,7 +1713,7 @@ test('升级窗口内队列被用户接管 → 整队不落、静默停用（不
         playback,
     });
     const radio = createRadio(deps);
-    radio._state.activeSceneId = 'driving';
+    radio._state.activeSceneId = 'free';
     [1, 2, 3].forEach((id) => radio._state.queuedKeys.add(`id:qq:${id}`));
     const pending = radio.onQueueChanged();
     for (let i = 0; i < 80 && record.fetches.length < 2; i += 1) await Promise.resolve(); // 等升级 LLM 发出
@@ -1737,7 +1756,7 @@ test('送队落地后模组被停用 → 不再开播、不上音效', async () 
         return result;
     };
     radio = createRadio({ ...deps, audioFx });
-    const result = await radio.runScene('work-morning');
+    const result = await radio.runScene('work');
     assert.equal(result, 'fail');
     assert.equal(playback._songs().length, 3, 'replace 已提交无法撤销');
     assert.equal(playback._calls.playItem.length, 0, '停用后不再开播');
@@ -1761,7 +1780,7 @@ test('整队替换后旧批次键被清掉（历史键不再把用户队列误�
     });
     const radio = createRadio(deps);
     radio._state.queuedKeys.add('id:qq:999'); // 上一批残留的键
-    await radio.runScene('work-morning');
+    await radio.runScene('work');
     assert.equal(radio._state.queuedKeys.has('id:qq:999'), false, '整队替换后旧键被清');
     assert.equal(radio._state.queuedKeys.size, 6, '只剩新批次 3 首的 id+pair 键');
 });
@@ -1785,7 +1804,7 @@ test('送队瞬态重试中停用模组 → 不再改写队列', async () => {
     let radio;
     deps.sleep = async () => { radio.dispose(); }; // 第一次瞬态退避时停用
     radio = createRadio(deps);
-    const result = await radio.runScene('work-morning');
+    const result = await radio.runScene('work');
     assert.equal(result, 'fail');
     assert.equal(playback._calls.replace.length, 1, '停用后不再重试送队');
     assert.equal(playback._songs().length, 0, '队列未被改写');
@@ -1796,7 +1815,7 @@ test('全链 F10/F11/F12/F14：激活恢复 → 静默复活一次 → 队尾再
     const storage = fakeStorage();
     storage._map.set(STORAGE_KEY, {
         history: [],
-        batches: { driving: batchSongs.map((s) => ({ s: 'qq', i: s.id, t: s.title, a: s.artist })) },
+        batches: { free: batchSongs.map((s) => ({ s: 'qq', i: s.id, t: s.title, a: s.artist })) },
     });
     const playback = fakePlayback({ items: batchSongs, currentIndex: 6 }); // 剩 1 ≤3
     const omni = fakeOmni({
@@ -1814,7 +1833,7 @@ test('全链 F10/F11/F12/F14：激活恢复 → 静默复活一次 → 队尾再
     await radio.restore();
     // 恢复即触发一轮：续单败 → 升级败 → 快照复活（本轮唯一一次重播，quiet 不弹「改播」提示）
     assert.equal(playback._calls.replace.length, 1);
-    assert.equal(radio._state.activeSceneId, 'driving');
+    assert.equal(radio._state.activeSceneId, 'free');
     assert.equal(
         record.toasts.filter((t) => t.message.includes('改播')).length,
         0,
@@ -1844,7 +1863,7 @@ test('F15：激活时队列为空（水化未完成），queueChanged 填充后�
     const storage = fakeStorage();
     storage._map.set(STORAGE_KEY, {
         history: [],
-        batches: { driving: batchSongs.map((s) => ({ s: 'qq', i: s.id, t: s.title, a: s.artist })) },
+        batches: { free: batchSongs.map((s) => ({ s: 'qq', i: s.id, t: s.title, a: s.artist })) },
     });
     const omni = makeOmniFor({
         笑忘书: [song(9, '笑忘书', '王菲')],
@@ -1866,7 +1885,7 @@ test('F15：激活时队列为空（水化未完成），queueChanged 填充后�
     playback._songs().push(...batchSongs);
     playback._setIndex(6); // 剩 1 ≤3：接管后应立刻续单
     await radio.onQueueChanged();
-    assert.equal(radio._state.activeSceneId, 'driving', '水化后的 queueChanged 应迟到接管');
+    assert.equal(radio._state.activeSceneId, 'free', '水化后的 queueChanged 应迟到接管');
     assert.equal(record.fetches.length, 1, '接管后队尾应立即续单');
     assert.deepEqual(playback._calls.replace[0].titles.slice(0, 8), batchSongs.map((s) => s.title));
 });
@@ -1877,7 +1896,7 @@ test('F15：激活时 getQueue 抛错（宿主动作未注册），水化后同�
     const storage = fakeStorage();
     storage._map.set(STORAGE_KEY, {
         history: [],
-        batches: { driving: batchSongs.map((s) => ({ s: 'qq', i: s.id, t: s.title, a: s.artist })) },
+        batches: { free: batchSongs.map((s) => ({ s: 'qq', i: s.id, t: s.title, a: s.artist })) },
     });
     const omni = makeOmniFor({
         笑忘书: [song(9, '笑忘书', '王菲')],
@@ -1900,7 +1919,7 @@ test('F15：激活时 getQueue 抛错（宿主动作未注册），水化后同�
     assert.equal(radio._state.activeSceneId, null);
     playback.getQueue = realGetQueue; // actions 注册 + 队列水化 → queueChanged
     await radio.onQueueChanged();
-    assert.equal(radio._state.activeSceneId, 'driving', '注册+水化后的 queueChanged 应迟到接管');
+    assert.equal(radio._state.activeSceneId, 'free', '注册+水化后的 queueChanged 应迟到接管');
     assert.equal(record.fetches.length, 1, '接管后队尾应立即续单');
 });
 
@@ -1909,7 +1928,7 @@ test('F15：水化出用户自己的队列 → 迟到评估仍不接管、不发
     const storage = fakeStorage();
     storage._map.set(STORAGE_KEY, {
         history: [],
-        batches: { driving: [
+        batches: { free: [
             { s: 'qq', i: '1', t: '红豆', a: '王菲' },
             { s: 'qq', i: '2', t: '阴天', a: '莫文蔚' },
             { s: 'qq', i: '3', t: '遇见', a: '孙燕姿' },
@@ -1931,12 +1950,12 @@ test('F15：stop() 解除接管武装——之后队列变化不再复活电台'
     const storage = fakeStorage();
     storage._map.set(STORAGE_KEY, {
         history: [],
-        batches: { driving: batchSongs.map((s) => ({ s: 'qq', i: s.id, t: s.title, a: s.artist })) },
+        batches: { free: batchSongs.map((s) => ({ s: 'qq', i: s.id, t: s.title, a: s.artist })) },
     });
     const { deps, record } = makeDeps({ playback, storage });
     const radio = createRadio(deps);
     await radio.restore();
-    assert.equal(radio._state.activeSceneId, 'driving');
+    assert.equal(radio._state.activeSceneId, 'free');
     radio.stop();
     assert.equal(radio._state.activeSceneId, null);
     playback._setIndex(6); // 用户把同一批继续放到队尾
@@ -1954,7 +1973,7 @@ test('F15：手动开播即解除武装——弃用电台再放已存批次主�
     const storage = fakeStorage();
     storage._map.set(STORAGE_KEY, {
         history: [],
-        batches: { driving: batchSongs.map((s) => ({ s: 'qq', i: s.id, t: s.title, a: s.artist })) },
+        batches: { free: batchSongs.map((s) => ({ s: 'qq', i: s.id, t: s.title, a: s.artist })) },
     });
     const omni = makeOmniFor({
         红豆: [song(50, '红豆', '王菲')],
@@ -1970,13 +1989,13 @@ test('F15：手动开播即解除武装——弃用电台再放已存批次主�
         omni, playback, storage,
     });
     const radio = createRadio(deps);
-    assert.equal(await radio.runScene('work-morning'), 'ok'); // 用户显式点卡：spec 停试条件，武装终结
-    assert.equal(radio._state.activeSceneId, 'work-morning');
+    assert.equal(await radio.runScene('work'), 'ok'); // 用户显式点卡：spec 停试条件，武装终结
+    assert.equal(radio._state.activeSceneId, 'work');
     // 用户整队换成自己的歌 → 电台静默停用
     await playback.replaceQueue([song(90, '用户歌1', '某人'), song(91, '用户歌2', '某人')], { expectedVersion: playback.getQueue().version });
     await radio.onQueueChanged();
     assert.equal(radio._state.activeSceneId, null);
-    // 用户随后播放的队列主体恰是已存 driving 批次镜像，显示歌也在集内（F12 全过的复活面）
+    // 用户随后播放的队列主体恰是已存 free 批次镜像，显示歌也在集内（F12 全过的复活面）
     await playback.replaceQueue(batchSongs, { expectedVersion: playback.getQueue().version });
     playback._setIndex(0);
     await radio.onQueueChanged();
@@ -2009,10 +2028,10 @@ test('批次条目写入首曲封面 c（describeSong 提供），听感 history
         omni, playback, storage,
     });
     const radio = createRadio(deps);
-    assert.equal(await radio.runScene('work-morning'), 'ok');
+    assert.equal(await radio.runScene('work'), 'ok');
     const saved = storage._map.get(STORAGE_KEY);
-    assert.equal(saved.batches['work-morning'][0].c, 'https://img/1.jpg');
-    assert.equal(saved.batches['work-morning'][2].c, 'https://img/3.jpg');
+    assert.equal(saved.batches['work'][0].c, 'https://img/1.jpg');
+    assert.equal(saved.batches['work'][2].c, 'https://img/3.jpg');
     // 听感历史不需要封面：onSongChanged 的条目不带 c。
     await radio.onSongChanged(song(1, '红豆', '王菲'));
     radio.samplePosition({ position: 12, duration: 200 });
@@ -2043,12 +2062,12 @@ test('批次封面：续单后 batchCovers 指向最近批首曲（镜像批界�
         omni, playback, storage,
     });
     const radio = createRadio(deps);
-    assert.equal(await radio.runScene('driving'), 'ok');
-    assert.equal(storage._map.get(STORAGE_KEY).batchCovers.driving, 'https://img/1.jpg', '首批后记本批首曲');
+    assert.equal(await radio.runScene('free'), 'ok');
+    assert.equal(storage._map.get(STORAGE_KEY).batchCovers.free, 'https://img/1.jpg', '首批后记本批首曲');
     playback._setIndex(2); // 剩 1 ≤3 → 续单
     radio._state.lastGenAt = 0;
     await radio.onQueueChanged();
-    assert.equal(storage._map.get(STORAGE_KEY).batchCovers.driving, 'https://img/5.jpg', '续单后改记新批首曲');
+    assert.equal(storage._map.get(STORAGE_KEY).batchCovers.free, 'https://img/5.jpg', '续单后改记新批首曲');
 });
 
 test('场景卡封面：歌单封面优先，缺失时用批次首曲封面，旧存档无 c 跳过', async () => {
@@ -2056,14 +2075,14 @@ test('场景卡封面：歌单封面优先，缺失时用批次首曲封面，�
     storage._map.set(STORAGE_KEY, {
         history: [],
         batches: {
-            'work-morning': [{ s: 'qq', i: '1', t: '红豆', a: '王菲', c: 'https://img/batch.jpg' }],
+            'work': [{ s: 'qq', i: '1', t: '红豆', a: '王菲' }], // 旧存档条目没有 c
             // 累积镜像下 batches[0] 是最旧留存首曲；有 batchCovers 时应优先用它。
-            'work-evening': [{ s: 'qq', i: '9', t: '最旧留存', a: '某人', c: 'https://img/oldest.jpg' }],
+            'free': [{ s: 'qq', i: '9', t: '最旧留存', a: '某人', c: 'https://img/oldest.jpg' }],
             reading: [{ s: 'qq', i: '2', t: '旧存档歌', a: '某人' }], // 旧存档条目没有 c
         },
-        batchCovers: { 'work-evening': 'https://img/recent.jpg' },
+        batchCovers: { 'free': 'https://img/recent.jpg' },
     });
-    storage._map.set(PLAYLIST_IDS_KEY, { 'account-A': { 'work-afternoon': 'pl-1' } });
+    storage._map.set(PLAYLIST_IDS_KEY, { 'account-A': { 'reading': 'pl-1' } });
     const registrations = [];
     const folium = {
         host: { folium: { major: 1, minor: 8 } }, env: { context: 'main' },
@@ -2079,7 +2098,7 @@ test('场景卡封面：歌单封面优先，缺失时用批次首曲封面，�
         events: { on: () => () => {} }, every: () => () => {}, onDispose: () => {},
         library: {
             listPlaylists: async () => [
-                { id: 'pl-1', title: 'AI 电台 · 工作·下午', coverUrl: 'https://img/playlist.jpg' },
+                { id: 'pl-1', title: 'AI 电台 · 读书', coverUrl: 'https://img/playlist.jpg' },
             ],
             createPlaylist: async () => {}, replacePlaylistSongs: async () => {}, getPlaylistTracks: async () => [],
         },
@@ -2091,10 +2110,18 @@ test('场景卡封面：歌单封面优先，缺失时用批次首曲封面，�
     const last = registrations.at(-1);
     assert.ok(last, 'refreshRadioCovers 应重新注册一次卡片');
     const byId = Object.fromEntries(last.map((entry) => [entry.id, entry.imageUrl]));
-    assert.equal(byId['work-afternoon'], 'https://img/playlist.jpg', '一档：场景歌单封面');
-    assert.equal(byId['work-evening'], 'https://img/recent.jpg', '二档：batchCovers 记的是最近批首曲，优先于镜像首条');
-    assert.equal(byId['work-morning'], 'https://img/batch.jpg', '无 batchCovers 的旧存档退回镜像首条 c');
-    assert.equal(byId['reading'], undefined, '旧存档条目没有 c → 跳过该档不报错');
+    assert.equal(byId['reading'], 'https://img/playlist.jpg', '一档：场景歌单封面');
+    assert.equal(byId['free'], 'https://img/recent.jpg', '二档：batchCovers 记的是最近批首曲，优先于镜像首条');
+    assert.equal(byId['work'], undefined, '旧存档条目没有 c → 跳过该档不报错');
+    // 第二轮：清掉 batchCovers、工作批次补上 c —— 无 batchCovers 时退回镜像首条 c。
+    const saved2 = storage._map.get(STORAGE_KEY);
+    saved2.batchCovers = {};
+    saved2.batches['work'] = [{ s: 'qq', i: '1', t: '红豆', a: '王菲', c: 'https://img/batch.jpg' }];
+    activate(folium);
+    for (let i = 0; i < 20; i += 1) await Promise.resolve();
+    const byId2 = Object.fromEntries(registrations.at(-1).map((entry) => [entry.id, entry.imageUrl]));
+    assert.equal(byId2['free'], 'https://img/oldest.jpg', '三档：无 batchCovers 时退回镜像首条 c');
+    assert.equal(byId2['work'], 'https://img/batch.jpg', '三档：工作镜像首条 c');
 });
 
 process.on('beforeExit', () => {

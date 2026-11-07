@@ -3,11 +3,9 @@
 export const PLAYLIST_IDS_KEY = 'aiSceneRadio.playlistIds.v1';
 const CREATION_PENDING = 'pending';
 export const SCENE_PROFILES = Object.freeze({
-    'work-morning': { bandsDb: [0, 1, 0, 1, 3, 3, 2, 1, 1, 0], lowCutHz: 60, highCutHz: 20000, compressorPct: 40, widthPct: 90, reverbPct: 5 },
-    'work-afternoon': { bandsDb: [0, 1, 0, 1, 3, 3, 2, 1, 1, 0], lowCutHz: 60, highCutHz: 20000, compressorPct: 40, widthPct: 90, reverbPct: 5 },
-    'work-evening': { bandsDb: [0, 1, 0, 1, 3, 3, 2, 0, 0, -1], lowCutHz: 60, highCutHz: 20000, compressorPct: 40, widthPct: 90, reverbPct: 8 },
-    driving: { bandsDb: [1, 3, 2, 1, 2, 2, 1, 1, 0, 0], lowCutHz: 40, highCutHz: 20000, compressorPct: 30, widthPct: 100, reverbPct: 0 },
+    work: { bandsDb: [0, 1, 0, 1, 3, 3, 2, 1, 1, 0], lowCutHz: 60, highCutHz: 20000, compressorPct: 40, widthPct: 90, reverbPct: 5 },
     reading: { bandsDb: [0, 0, 0, 0, 1, 1, 0, 0, 0, 0], lowCutHz: 30, highCutHz: 16000, compressorPct: 15, widthPct: 80, reverbPct: 0 },
+    free: { bandsDb: [1, 3, 2, 1, 2, 2, 1, 1, 0, 0], lowCutHz: 40, highCutHz: 20000, compressorPct: 30, widthPct: 100, reverbPct: 0 },
 });
 
 export const playlistTitle = (scene) => `AI 电台 · ${scene.label}`;

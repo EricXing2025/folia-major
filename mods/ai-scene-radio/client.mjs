@@ -96,11 +96,9 @@ export default function activate(folium) {
     });
 
     const SCENE_EN = {
-        'work-morning': 'Work · morning',
-        'work-afternoon': 'Work · afternoon',
-        'work-evening': 'Work · evening',
-        driving: 'Driving',
+        work: 'Work',
         reading: 'Reading',
+        free: 'Free listening',
     };
 
     // Scene playlist covers become card art once playlists exist; refresh picks up what a save made.

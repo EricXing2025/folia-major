@@ -206,12 +206,26 @@ export const buildNowContext = ({ now, weather = null, city = HOME_CITY.name}) =
 
 // ---------------------------------------------------------------- 提示词
 
+// 带 timeBands 的场景（如「工作」）按当前小时套用时段参数：Eric 不再手动分上午/下午/晚上。
+export const resolveScene = (scene, now = new Date()) => {
+    if (!scene || !Array.isArray(scene.timeBands) || !scene.timeBands.length) return scene;
+    const hour = now.getHours();
+    const band = scene.timeBands.find((b) => hour < b.until) || scene.timeBands[scene.timeBands.length - 1];
+    const resolved = { ...scene };
+    delete resolved.timeBands;
+    resolved.energyCurve = band.energyCurve;
+    resolved.tempo = band.tempo;
+    resolved.vocalRatio = band.vocalRatio;
+    resolved.mood = band.mood;
+    return resolved;
+};
+
 // 组装 system/user 提示词：画像 + 场景参数 + 已播避重 + 负反馈；要的歌比 batchSize 多要冗余量。
 // F9 起不再带排除名单：EXCLUSIONS 只是口味分析防画像混淆的工具，不是聆听禁令，符合画像的歌手照常可选。
 export const buildPrompt = ({ scene, history = [], profile = PROFILE, extra = 8, context = '' }) => {
     const batchSize = scene.batchSize || 15;
     const count = batchSize + extra;
-    const heard = history.filter((h) => h.v !== 'neg').slice(-AVOID_HISTORY);
+    const heard = scene.allowRepeats ? [] : history.filter((h) => h.v !== 'neg').slice(-AVOID_HISTORY);
     const skipped = history.filter((h) => h.v === 'neg').slice(-12);
     const liked = history.filter((h) => h.v === 'pos').slice(-12);
     const fmt = (h) => `${h.t} - ${h.a}`;
@@ -479,7 +493,7 @@ export const createRadio = (deps) => {
         const model = String(conf.model || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
         const reasoningEffort = String(conf.reasoningEffort ?? '').trim() || DEFAULT_REASONING_EFFORT;
         const context = await nowContext().catch(() => '');
-        const prompt = buildPrompt({ scene, history, context });
+        const prompt = buildPrompt({ scene: resolveScene(scene), history, context });
         const response = await deps.fetch(`${base}/chat/completions`, {
             method: 'POST',
             headers: {

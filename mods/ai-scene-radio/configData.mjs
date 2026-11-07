@@ -43,60 +43,61 @@ export const PROFILE = {
 export const SCENES = [
     {
         "batchSize": 15,
-        "energyCurve": "先暖后稳：开头温润提神，之后沉稳专注",
-        "fallbackPlaylist": "工作·上午",
-        "id": "work-morning",
-        "label": "工作·上午",
+        "energyCurve": "随当前时段在提神专注、防困沉稳、降速收尾之间自然过渡",
+        "fallbackPlaylist": "工作·下午",
+        "id": "work",
+        "label": "工作",
         "mood": [
-            "清醒",
-            "温润",
             "专注"
         ],
-        "tempo": "慢至中速",
-        "vocalRatio": "以人声为主，避开情绪浓烈与节奏过炸"
-    },
-    {
-        "batchSize": 15,
-        "energyCurve": "午睡后先防困（略带律动与爆发）后沉稳",
-        "fallbackPlaylist": "工作·下午",
-        "id": "work-afternoon",
-        "label": "工作·下午",
-        "mood": [
-            "防困",
-            "明朗",
-            "沉稳"
+        "tempo": "随时段",
+        "timeBands": [
+            {
+                "energyCurve": "深夜低能量，安静收尾",
+                "mood": [
+                    "夜感",
+                    "松弛",
+                    "收尾"
+                ],
+                "tempo": "慢速",
+                "until": 5,
+                "vocalRatio": "人声放轻，可混少量纯音乐"
+            },
+            {
+                "energyCurve": "先暖后稳：开头温润提神，之后沉稳专注",
+                "mood": [
+                    "清醒",
+                    "温润",
+                    "专注"
+                ],
+                "tempo": "慢至中速",
+                "until": 11,
+                "vocalRatio": "以人声为主，避开情绪浓烈与节奏过炸"
+            },
+            {
+                "energyCurve": "午后先防困（略带律动与爆发）后沉稳",
+                "mood": [
+                    "防困",
+                    "明朗",
+                    "沉稳"
+                ],
+                "tempo": "中速为主",
+                "until": 17,
+                "vocalRatio": "以人声为主，可少量有节奏的优质流行"
+            },
+            {
+                "energyCurve": "全程降速，向休息过渡",
+                "mood": [
+                    "松弛",
+                    "夜感",
+                    "收尾"
+                ],
+                "tempo": "慢速",
+                "until": 24,
+                "vocalRatio": "人声放轻，可混少量纯音乐"
+            }
         ],
-        "tempo": "中速为主",
-        "vocalRatio": "以人声为主，可少量有节奏的优质流行"
-    },
-    {
-        "batchSize": 15,
-        "energyCurve": "全程降速，向 00:00 睡觉过渡",
-        "fallbackPlaylist": "工作·晚上",
-        "id": "work-evening",
-        "label": "工作·晚上",
-        "mood": [
-            "松弛",
-            "夜感",
-            "收尾"
-        ],
-        "tempo": "慢速",
-        "vocalRatio": "人声放轻，可混少量纯音乐"
-    },
-    {
-        "batchSize": 15,
-        "energyCurve": "全程舒展有律动，越听越有感觉",
-        "fallbackPlaylist": null,
-        "id": "driving",
-        "label": "驾车",
-        "mood": [
-            "律动",
-            "旋律鲜明",
-            "情绪舒展",
-            "耐听"
-        ],
-        "tempo": "中速至中快",
-        "vocalRatio": "人声为主，允许与收藏重复"
+        "vocalRatio": "以人声为主"
     },
     {
         "batchSize": 15,
@@ -111,6 +112,21 @@ export const SCENES = [
         ],
         "tempo": "慢速",
         "vocalRatio": "纯音乐优先，人声须极轻"
+    },
+    {
+        "allowRepeats": true,
+        "batchSize": 15,
+        "energyCurve": "随此刻的时段、天气与季节自然流动，越听越有感觉",
+        "fallbackPlaylist": null,
+        "id": "free",
+        "label": "随心听",
+        "mood": [
+            "随心",
+            "耐听",
+            "舒展"
+        ],
+        "tempo": "不限",
+        "vocalRatio": "人声为主，器乐也可"
     }
 ];
 
