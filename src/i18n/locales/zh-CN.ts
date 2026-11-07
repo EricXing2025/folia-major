@@ -3103,6 +3103,7 @@ export default {
     "machiSceneRecordstore": "深夜唱片店",
     "machiSceneChangan": "长安夜市",
     "machiSceneZhuying": "烛影长安",
+    "machiSceneTramline": "港岛末班电车",
     "machiSkySection": "时间与天气",
     "machiTimeOfDay": "时间",
     "machiTimeOfDayHint": "自动：跟本地时间走，白天、黄昏或夜里。",

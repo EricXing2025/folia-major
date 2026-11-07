@@ -89,6 +89,7 @@ export const MACHI_SCENE_LABEL_KEYS: Record<MachiTuning['scene'], string> = {
     recordstore: 'options.machiSceneRecordstore',
     changan: 'options.machiSceneChangan',
     zhuying: 'options.machiSceneZhuying',
+    tramline: 'options.machiSceneTramline',
 };
 
 export const MACHI_TIME_LABEL_KEYS: Record<MachiTimeOfDay, string> = {
@@ -175,6 +176,17 @@ const SCENE_GLYPHS: Record<MachiTuning['scene'], React.ReactNode> = {
             <path d="M16.5 20V10" />
             <path d="M16 12h1M15.4 14.5h2.2M14.8 17h3.4" opacity="0.7" />
             <path d="M3 20h18" />
+        </>
+    ),
+    // 港岛末班电车：一辆双层电车（两层车窗、车顶一根受电杆、底下两个轮）
+    tramline: (
+        <>
+            <path d="M4.5 17.5V8h15v9.5" />
+            <path d="M4.5 12h15" opacity="0.6" />
+            <path d="M8 8v4M12 8v4M16 8v4M8 12v5.5M12 12v5.5M16 12v5.5" opacity="0.6" />
+            <path d="M12 8 15.5 4H20" opacity="0.7" />
+            <path d="M7 17.5v2M17 17.5v2" />
+            <path d="M3 20.5h18" />
         </>
     ),
 };

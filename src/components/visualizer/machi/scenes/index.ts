@@ -4,6 +4,7 @@ import { KONBINI_SCENE } from './konbini/konbiniScene';
 import { KOWLOON_SCENE } from './kowloon/kowloonScene';
 import { RECORDSTORE_SCENE } from './recordstore/recordstoreScene';
 import { STATION_SCENE } from './station/stationScene';
+import { TRAMLINE_SCENE } from './tramline/tramlineScene';
 import { ZHUYING_SCENE } from './zhuying/zhuyingScene';
 import type { MachiSceneDefinition } from './types';
 
@@ -17,4 +18,5 @@ export const MACHI_SCENES: Record<MachiSceneId, MachiSceneDefinition> = {
     recordstore: RECORDSTORE_SCENE,
     changan: CHANGAN_SCENE,
     zhuying: ZHUYING_SCENE,
+    tramline: TRAMLINE_SCENE,
 };

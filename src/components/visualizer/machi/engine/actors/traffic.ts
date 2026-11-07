@@ -31,7 +31,7 @@ export const createBaseClippingPlanes = (half = 6) => [
  * 在材质的着色器里按 planes 裁掉底座外面的部分（three 的约定：distanceToPoint < 0 的一侧裁掉）。接在材质原有的
  * onBeforeCompile 后面，程序缓存键另加一段，和不裁切的同类材质分开。车不投影，阴影图那一遍不用管。
  */
-const clipToBase = <T extends THREE.Material>(material: T, planes: readonly THREE.Plane[]): T => {
+export const clipToBase = <T extends THREE.Material>(material: T, planes: readonly THREE.Plane[]): T => {
     const uniform = { value: planes.map(plane => new THREE.Vector4(plane.normal.x, plane.normal.y, plane.normal.z, plane.constant)) };
     const previous = material.onBeforeCompile;
     const previousKey = material.customProgramCacheKey;

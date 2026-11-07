@@ -1,6 +1,7 @@
 // Vietnamese (vi) interface text, laid out line for line like en.ts.
 
 export default {
+  "aiSceneRadio": { "heading": "Cảnh AI" },
   "scratchpad": {
     "title": "Sổ ghi nhanh",
     "count_one": "{{count}} bài",
@@ -3102,6 +3103,7 @@ export default {
     "machiSceneRecordstore": "Tiệm đĩa nửa đêm",
     "machiSceneChangan": "Chợ đêm Trường An",
     "machiSceneZhuying": "Trường An ánh nến",
+    "machiSceneTramline": "Chuyến xe điện cuối Hong Kong",
     "machiSkySection": "Thời gian và thời tiết",
     "machiTimeOfDay": "Thời gian",
     "machiTimeOfDayHint": "Tự động theo đồng hồ của bạn: ban ngày, hoàng hôn hoặc ban đêm.",
