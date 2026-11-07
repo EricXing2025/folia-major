@@ -7,8 +7,9 @@ import type { ZhuyingVariation } from './zhuyingSeed';
 
 // src/components/visualizer/machi/scenes/zhuying/skyline.ts
 // 窗外的长安夜：后墙之外是一条湿街（引擎的湿地面），再往外由近到远几层剪影——一重近檐、一重带灯窗的唐风屋顶、
-// 近檐排里被灯光洗亮的大雁塔（七层，窗外唯一的暖色大块，塔尖收在歌词条下的亮窗格里）、左端的城楼、
-// 最远的屋脊带；窗的上沿一角探进来一枝樱花。
+// 中排屋之间被灯光洗亮的大雁塔（七层，窗外唯一的暖色大块，投影落在窗的中列、塔尖收在歌词条下；塔后一圈光晕、
+// 塔的两翼各一座亮檐口的唐楼、檐口下两团樱花），左端的城楼、最远的屋脊带与一片城市光点；近檐排脚一条
+// 水面微光带（雨夜街沿上倒映灯色的亮边），窗的上沿一角探进来一枝樱花。
 // 房前、右两侧的底座上再摆两簇矮檐，让书房像架在屋顶群之上。全是低模剪影，几何都进静态合批。
 
 export interface ZhuyingSkylineParts {
@@ -26,6 +27,8 @@ export interface ZhuyingSkylineParts {
     };
     /** 亮窗的实例网格（syncColors 时回写强度）。 */
     litWindows: THREE.InstancedMesh;
+    /** 塔后光晕的贴图：材质归材质管，贴图要场景亲手销毁。 */
+    haloTexture: THREE.Texture;
 }
 
 /** 一座唐风屋顶：墙身一盒，上面一块挑出的大屋檐板（四角起翘用两块斜板近似），顶上一道正脊。 */
@@ -48,9 +51,41 @@ const tangRoof = (
     ];
 };
 
+/** 塔后光晕的贴图：一圈中心亮、边缘淡没的暖光（DataTexture 手算，测试环境不依赖 canvas）。 */
+const createHaloTexture = () => {
+    const size = 128;
+    const data = new Uint8Array(size * size * 4);
+    for (let row = 0; row < size; row += 1) {
+        for (let column = 0; column < size; column += 1) {
+            const dx = (column + 0.5 - size / 2) / (size / 2);
+            const dy = (row + 0.5 - size / 2) / (size / 2);
+            const radius = Math.sqrt(dx * dx + dy * dy);
+            const alpha = Math.max(0, radius < 0.45 ? 1 - (radius / 0.45) * 0.58 : (1 - radius) * 0.42 / 0.55);
+            const index = (row * size + column) * 4;
+            data[index] = 255;
+            data[index + 1] = 255;
+            data[index + 2] = 255;
+            data[index + 3] = Math.round(255 * Math.min(1, alpha));
+        }
+    }
+    const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+    texture.colorSpace = THREE.NoColorSpace;
+    texture.needsUpdate = true;
+    return texture;
+};
+
 export const buildZhuyingSkyline = (materials: MachiMaterials, variation: ZhuyingVariation): ZhuyingSkylineParts => {
     const random = createVisualizerRng(`zhuying:skyline:${variation.skylineSeed}`);
     const parts: THREE.Object3D[] = [];
+    const pagoda = SKYLINE.pagoda;
+    // 各排屋檐给塔让出的屏幕柱位（按各自到玻璃的纵深折算成世界 x，塔在窗的中列要能看全）。
+    const nearGap = { x0: -3.65, x1: -2.55 };
+    const midGaps = [
+        { x0: -4.15, x1: -2.9 }, // 塔身
+        { x0: -4.78, x1: -4.12 }, // 塔左那座亮檐楼的位置（下面手工摆）
+        { x0: -2.85, x1: -2.15 }, // 塔右那座
+    ];
+    const overlaps = (a0: number, a1: number, b0: number, b1: number) => a0 < b1 && a1 > b0;
     const roofs: ZhuyingSkylineParts['roofs'] = {
         near: { x0: -6, z0: SKYLINE.nearZ - 0.35, x1: 0.5, z1: SKYLINE.nearZ + 0.35, y: 0.85 },
         mid: { x0: -6, z0: SKYLINE.midZ0, x1: 1.1, z1: SKYLINE.midZ1, y: 1.45 },
@@ -67,23 +102,29 @@ export const buildZhuyingSkyline = (materials: MachiMaterials, variation: Zhuyin
     street.position.set(0, LEVEL.street, (STREET.z0 + STREET.z1) / 2);
     parts.push(street);
 
-    // 近檐：窗台下一排矮檐口（把视线里的街面切成前后两层）。
+    // 近檐：窗台下一排矮檐口（把视线里的街面切成前后两层）；塔柱那一段留着不盖，塔身能一直看到檐脚。
     let x = -6;
     while (x < 0.4) {
         const w = 1.1 + random() * 1.5;
         const h = 0.5 + random() * 0.35;
-        parts.push(...tangRoof(materials, 'roofBody', 'roofDark', x, Math.min(x + w, 0.5), SKYLINE.nearZ - 0.3, SKYLINE.nearZ + 0.28, LEVEL.street, h));
+        const x1 = Math.min(x + w, 0.5);
+        if (!overlaps(x, x1, nearGap.x0, nearGap.x1)) {
+            parts.push(...tangRoof(materials, 'roofBody', 'roofDark', x, x1, SKYLINE.nearZ - 0.3, SKYLINE.nearZ + 0.28, LEVEL.street, h));
+        }
         x += w + 0.12 + random() * 0.3;
     }
 
-    // 中排：四五座带灯窗的唐风屋顶，高低错落；灯窗是 +z 面上的小发光格（实例）。
+    // 中排：四五座带灯窗的唐风屋顶，高低错落；塔位与两翼的亮檐楼留出空当。灯窗是 +z 面上的小发光格（实例）。
     const litWindows: { x: number; y: number; z: number; w: number; h: number }[] = [];
     const midRoofs: { x0: number; x1: number; h: number }[] = [];
     x = -5.9;
     while (x < 1.0) {
         const w = 1.2 + random() * 1.6;
         const h = 0.95 + random() * 0.5;
-        midRoofs.push({ x0: x, x1: Math.min(x + w, 1.1), h });
+        const x1 = Math.min(x + w, 1.1);
+        if (!midGaps.some(gap => overlaps(x, x1, gap.x0, gap.x1))) {
+            midRoofs.push({ x0: x, x1, h });
+        }
         x += w + 0.35 + random() * 0.5;
     }
     midRoofs.forEach(block => {
@@ -98,21 +139,43 @@ export const buildZhuyingSkyline = (materials: MachiMaterials, variation: Zhuyin
         }
     });
 
+    // 塔的两翼各一座特意摆的唐楼：檐口下与台基各压一条暖亮边（像被灯洗亮的立面），灯窗排得比随机楼密。
+    const flanks: { x0: number; x1: number; z0: number; z1: number; h: number }[] = [
+        { x0: -4.72, x1: -4.18, z0: -5.45, z1: -5.05, h: 1.28 },
+        { x0: -2.78, x1: -2.22, z0: -5.35, z1: -4.98, h: 1.05 },
+    ];
+    flanks.forEach(block => {
+        parts.push(...tangRoof(materials, 'roofBody', 'roofMid', block.x0, block.x1, block.z0, block.z1, LEVEL.street, block.h));
+        // 檐口下一条、台基一条暖亮边；台基那条像一层亮着的门面。
+        parts.push(
+            boxSpan(materials.glow('eaveGlow'), block.x0 + 0.04, block.x1 - 0.04, block.h - 0.09, block.h - 0.055, block.z1, block.z1 + 0.012, { radius: 0.004, name: 'Flank/eave' }),
+            boxSpan(materials.glow('eaveGlow'), block.x0 + 0.08, block.x1 - 0.08, LEVEL.street + 0.06, LEVEL.street + 0.16, block.z1, block.z1 + 0.012, { radius: 0.004, name: 'Flank/base' }),
+        );
+        const columns = Math.max(2, Math.floor((block.x1 - block.x0) / 0.24));
+        for (let column = 0; column < columns; column += 1) {
+            if (random() < 0.2) continue;
+            const wx = block.x0 + ((block.x1 - block.x0) * (column + 0.5)) / columns;
+            const wy = block.h * (0.32 + random() * 0.38);
+            litWindows.push({ x: wx, y: wy, z: block.z1 + 0.006, w: 0.09 + random() * 0.04, h: 0.08 + random() * 0.05 });
+        }
+    });
+
     // 大雁塔：矮殿基座上七层收分的塔身——泛光暖金的塔身、每层一道深色挑檐、每层前右两面各一孔拱洞亮窗
-    // （下宽上窄两级叠出拱顶），窗外唯一的暖色大块；架在近檐排里，剪影从檐口后升起来。
-    const pagoda = SKYLINE.pagoda;
+    // （下宽上窄两级叠出拱顶），窗外唯一的暖色大块；架在中排屋檐间，塔后衬一圈光晕。
     parts.push(
-        boxSpan(materials.toon('roofBody'), pagoda.x - 0.55, pagoda.x + 0.55, LEVEL.street, LEVEL.street + pagoda.base, pagoda.z - 0.3, pagoda.z + 0.3, { radius: 0.02, name: 'Pagoda/base' }),
+        boxSpan(materials.toon('roofBody'), pagoda.x - 0.6, pagoda.x + 0.6, LEVEL.street, LEVEL.street + pagoda.base, pagoda.z - 0.32, pagoda.z + 0.32, { radius: 0.02, name: 'Pagoda/base' }),
+        // 基座正檐口下也压一条暖亮边，接上台基的光。
+        boxSpan(materials.glow('eaveGlow'), pagoda.x - 0.5, pagoda.x + 0.5, LEVEL.street + pagoda.base - 0.07, LEVEL.street + pagoda.base - 0.04, pagoda.z + 0.32, pagoda.z + 0.333, { radius: 0.004, name: 'Pagoda/baseTrim' }),
     );
     const tierH = (pagoda.height - pagoda.base) / 7;
     for (let tier = 0; tier < 7; tier += 1) {
         const t = tier / 6;
-        const half = 0.34 * (1 - t * 0.55);
+        const half = 0.38 * (1 - t * 0.55);
         const y = LEVEL.street + pagoda.base + tierH * tier;
         const eaveY = y + tierH * 0.72;
         parts.push(
             boxSpan(materials.glow('pagodaBody'), pagoda.x - half, pagoda.x + half, y, y + tierH, pagoda.z - half * 0.7, pagoda.z + half * 0.7, { radius: 0.008, name: 'Pagoda/tier' }),
-            boxSpan(materials.toon('pagodaRoof'), pagoda.x - half - 0.09, pagoda.x + half + 0.09, eaveY, eaveY + tierH * 0.18, pagoda.z - half * 0.7 - 0.09, pagoda.z + half * 0.7 + 0.09, { radius: 0.008, name: 'Pagoda/eave' }),
+            boxSpan(materials.toon('pagodaRoof'), pagoda.x - half - 0.1, pagoda.x + half + 0.1, eaveY, eaveY + tierH * 0.18, pagoda.z - half * 0.7 - 0.1, pagoda.z + half * 0.7 + 0.1, { radius: 0.008, name: 'Pagoda/eave' }),
             // 拱洞亮窗：前面（+z）与右面（+x）各一孔，镜头两个面都看得到。
             boxSpan(materials.glow('pagoda'), pagoda.x - half * 0.22, pagoda.x + half * 0.22, y + tierH * 0.26, y + tierH * 0.6, pagoda.z + half * 0.7, pagoda.z + half * 0.7 + 0.012, { radius: 0.003, name: 'Pagoda/niche' }),
             boxSpan(materials.glow('pagoda'), pagoda.x - half * 0.13, pagoda.x + half * 0.13, y + tierH * 0.6, y + tierH * 0.82, pagoda.z + half * 0.7, pagoda.z + half * 0.7 + 0.012, { radius: 0.003, name: 'Pagoda/niche' }),
@@ -123,6 +186,19 @@ export const buildZhuyingSkyline = (materials: MachiMaterials, variation: Zhuyin
     // 塔刹。
     parts.push(cylinderAt(materials.toon('pagodaRoof'), 0.05, 0.16, [pagoda.x, LEVEL.street + pagoda.height, pagoda.z], { name: 'Pagoda/finial', segments: 6 }));
 
+    // 塔后的光晕：一张对着镜头的加色径向渐变面，亮度走 glow 角色，夜里把塔从夜色里托出来。
+    const haloTexture = createHaloTexture();
+    const haloMaterial = materials.glow('pagodaHalo');
+    haloMaterial.map = haloTexture;
+    haloMaterial.transparent = true;
+    haloMaterial.blending = THREE.AdditiveBlending;
+    haloMaterial.depthWrite = false;
+    const halo = mesh(new THREE.PlaneGeometry(1.5, 1.25), haloMaterial, { name: 'Pagoda/halo', castShadow: false, receiveShadow: false });
+    halo.position.set(pagoda.x, LEVEL.street + 0.75, pagoda.z - 0.5);
+    halo.rotation.y = Math.PI / 4;
+    halo.renderOrder = 1;
+    parts.push(halo);
+
     // 城楼：窗左端外一座城台，上面一间重檐城楼，檐下一点暖灯。
     const gate = SKYLINE.gate;
     parts.push(
@@ -131,13 +207,61 @@ export const buildZhuyingSkyline = (materials: MachiMaterials, variation: Zhuyin
         ...tangRoof(materials, 'roofBody', 'roofMid', gate.x0 + 0.12, gate.x1 - 0.12, gate.z0 + 0.1, gate.z1 - 0.1, LEVEL.street + 0.55, LEVEL.street + 1.15),
     );
 
-    // 最远的屋脊带：贴着底座后沿的一条矮剪影，几点散灯。
+    // 最远的屋脊带：贴着底座后沿的一条矮剪影，脊线一片细碎的城市光点（远处楼窗的散光）。
     parts.push(boxSpan(materials.toon('roofFar'), -6, 2.5, LEVEL.street, LEVEL.street + 0.55, SKYLINE.farZ - 0.06, SKYLINE.farZ + 0.06, { radius: 0.02, name: 'Skyline/far' }));
     for (let index = 0; index < 8; index += 1) {
         const wx = -5.6 + index * 0.95 + random() * 0.4;
         if (random() < 0.4) continue;
         litWindows.push({ x: wx, y: 0.22 + random() * 0.25, z: SKYLINE.farZ + 0.07, w: 0.1, h: 0.07 });
     }
+    // 城市光点：脊上几十粒小亮点（高低错落，像更远的楼里零星亮着的窗），再低处一排岸边的碎灯。
+    for (let index = 0; index < 34; index += 1) {
+        if (random() < 0.18) continue;
+        litWindows.push({
+            x: -5.8 + random() * 6.4,
+            y: 0.18 + random() * random() * 0.6,
+            z: SKYLINE.farZ + 0.07,
+            w: 0.02 + random() * 0.045,
+            h: 0.018 + random() * 0.04,
+        });
+    }
+    for (let index = 0; index < 16; index += 1) {
+        litWindows.push({
+            x: -5.7 + random() * 5.4,
+            y: 0.07 + random() * 0.2,
+            z: SKYLINE.farZ + 0.1,
+            w: 0.03 + random() * 0.05,
+            h: 0.02 + random() * 0.03,
+        });
+    }
+
+    // 水面微光：近檐排脚与远楼脚下各一条横的暖亮边，夜里读作湿漉漉的水岸反光。
+    parts.push(
+        boxSpan(materials.glow('waterGlow'), -5.35, -0.5, LEVEL.street + 0.015, LEVEL.street + 0.125, SKYLINE.nearZ - 0.1, SKYLINE.nearZ - 0.075, { radius: 0.003, name: 'Water/shimmer' }),
+        boxSpan(materials.glow('waterGlow'), -5.6, -1.4, LEVEL.street + 0.02, LEVEL.street + 0.1, -5.56, -5.53, { radius: 0.003, name: 'Water/shimmer' }),
+    );
+
+    // 檐口下的樱花簇：塔基两翼各一团被灯色洗透的花，浮在近檐顶之上、投影收在歌词条之下（剪影里的两处粉点）。
+    const clusterGeometry = new THREE.IcosahedronGeometry(0.09, 0);
+    const clusterSpots = [
+        { x: -4.45, y: 1.02, z: -4.97, count: 12, spread: 0.28 },
+        { x: -2.3, y: 0.95, z: -4.9, count: 9, spread: 0.24 },
+    ];
+    const clusterCount = clusterSpots.reduce((sum, spot) => sum + spot.count, 0);
+    const clusters = new THREE.InstancedMesh(clusterGeometry, materials.toon('blossom'), clusterCount);
+    clusters.name = 'Blossom/clusters';
+    clusters.castShadow = false;
+    let clusterIndex = 0;
+    const clusterMatrix = new THREE.Matrix4();
+    clusterSpots.forEach(spot => {
+        for (let index = 0; index < spot.count; index += 1) {
+            clusterMatrix.makeScale(0.5 + random() * 0.8, 0.5 + random() * 0.8, 0.5 + random() * 0.8)
+                .setPosition(spot.x + (random() - 0.5) * spot.spread * 2, spot.y + (random() - 0.5) * spot.spread, spot.z + (random() - 0.5) * 0.2);
+            clusters.setMatrixAt(clusterIndex, clusterMatrix);
+            clusterIndex += 1;
+        }
+    });
+    parts.push(clusters);
 
     // 房前、右两侧的矮檐群：让书房像架在屋顶群之上（只摆剪影，不收光的细节）。
     SURROUND_ROOFS.forEach(area => {
@@ -212,5 +336,5 @@ export const buildZhuyingSkyline = (materials: MachiMaterials, variation: Zhuyin
     });
     parts.push(...lotSurfaces);
 
-    return { group: group('Skyline', ...parts), street, lotSurfaces, roofs, litWindows: lit };
+    return { group: group('Skyline', ...parts), street, lotSurfaces, roofs, litWindows: lit, haloTexture };
 };

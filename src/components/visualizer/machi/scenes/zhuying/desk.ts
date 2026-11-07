@@ -2,13 +2,14 @@ import * as THREE from 'three';
 import { createVisualizerRng } from '../../../visualizerSeedHash';
 import { boxAt, boxSpan, cylinderAt, group, mesh, tubeBetween } from '../../engine/geometry/shapes';
 import type { MachiMaterials } from '../../engine/materials';
-import { DESK, LEVEL, MONITOR } from './layout';
+import { CHAIR, DESK, LEVEL, MONITOR } from './layout';
 import type { ZhuyingVariation } from './zhuyingSeed';
 
 // src/components/visualizer/machi/scenes/zhuying/desk.ts
 // 书桌一角（屋里的工作台）：桌面、两侧板脚与前沿跑马灯的底板；桌上的超宽显示器（支架与边框，屏面是
-// zhuyingSigns.ts 的画布）、键盘、杯子、耳机架、斜杆小台灯（灯罩里一点暖光，灯锥由场景补）、一块小键盘台
-// （十几颗键，亮着的那几颗按歌变）。
+// zhuyingSigns.ts 的画布）、键盘、杯子、耳机架、一摞书、斜放的小平板、斜杆小台灯（灯罩里一点暖光，
+// 灯锥由场景补）、一块小键盘台（十几颗键，亮着的那几颗按歌变）；桌后沿与桌脚下沿各压一条暖亮边；
+// 桌前一把转椅，背对着镜头斜对着显示器。
 
 export interface ZhuyingDeskParts {
     group: THREE.Group;
@@ -29,13 +30,16 @@ export const buildZhuyingDesk = (materials: MachiMaterials, variation: ZhuyingVa
     const wood = materials.toon('woodDark');
     const topY = DESK.top;
 
-    // 桌面与两块板脚；前沿中间留出跑马灯的位置（灯条面由 signs 贴）。
+    // 桌面与两块板脚；前沿中间留出跑马灯的位置（灯条面由 signs 贴）。桌后沿一条暖亮边（桌后的氛围灯带）、
+    // 桌脚下沿一条压在地板上的暖光。
     parts.push(
         boxSpan(materials.toon('deskTop'), DESK.x0 - 0.04, DESK.x1 + 0.04, topY - 0.05, topY, DESK.z0, DESK.z1, { radius: 0.012, name: 'Desk/top' }),
         boxSpan(wood, DESK.x0 + 0.02, DESK.x0 + 0.12, LEVEL.floor, topY - 0.05, DESK.z0 + 0.06, DESK.z1 - 0.06, { radius: 0.008, name: 'Desk/leg' }),
         boxSpan(wood, DESK.x1 - 0.12, DESK.x1 - 0.02, LEVEL.floor, topY - 0.05, DESK.z0 + 0.06, DESK.z1 - 0.06, { radius: 0.008, name: 'Desk/leg' }),
         // 前沿的跑马灯底板（一条细黑槽）。
         boxSpan(wood, DESK.x0 + 0.1, DESK.x1 - 0.1, DESK.tickerY - DESK.tickerHeight / 2 - 0.03, DESK.tickerY + DESK.tickerHeight / 2 + 0.03, DESK.z1 - 0.02, DESK.z1, { radius: 0.006, name: 'Desk/tickerBox' }),
+        boxSpan(materials.glow('shelfStrip'), DESK.x0 + 0.06, DESK.x1 - 0.06, topY - 0.008, topY + 0.004, DESK.z0 + 0.005, DESK.z0 + 0.02, { radius: 0.003, name: 'Desk/backGlow' }),
+        boxSpan(materials.glow('shelfStrip'), DESK.x0 + 0.14, DESK.x1 - 0.14, LEVEL.floor + 0.16, LEVEL.floor + 0.185, DESK.z1 - 0.008, DESK.z1 + 0.004, { radius: 0.003, name: 'Desk/underGlow' }),
     );
 
     // 显示器：底座、立柱、边框（屏面另贴）。
@@ -61,11 +65,20 @@ export const buildZhuyingDesk = (materials: MachiMaterials, variation: ZhuyingVa
     const keyRow = boxAt(materials.toon('keycap'), [0.72, 0.014, 0.2], [keyboardAt.x, topY + 0.025, keyboardAt.z], { name: 'Keyboard/keys', radius: 0.004, rotationY: MONITOR.azimuth });
     parts.push(keyRow);
 
-    // 杯子、耳机架。
+    // 杯子、耳机架、桌角一摞书、斜放的小平板。
     parts.push(
         cylinderAt(materials.toon('mug'), 0.055, 0.12, [-0.05, topY, -3.35], { name: 'Mug', segments: 14 }),
         cylinderAt(wood, 0.045, 0.01, [-0.05, topY + 0.115, -3.35], { name: 'Mug/lid', segments: 14 }),
+        boxAt(materials.toon('teacup'), [0.22, 0.035, 0.15], [-1.74, topY, -3.3], { name: 'Book/stack', radius: 0.004, rotationY: 0.12 }),
+        boxAt(materials.toon('mug'), [0.19, 0.03, 0.13], [-1.72, topY + 0.035, -3.31], { name: 'Book/stack', radius: 0.004, rotationY: -0.08 }),
+        boxAt(materials.toon('cushion'), [0.16, 0.028, 0.12], [-1.75, topY + 0.065, -3.3], { name: 'Book/stack', radius: 0.004, rotationY: 0.2 }),
     );
+    // 小平板斜架在键盘右边（一小方块斜靠着一点）。
+    const tablet = mesh(new THREE.BoxGeometry(0.2, 0.27, 0.012), materials.toon('plasticDark'), { name: 'Tablet' });
+    tablet.position.set(-0.18, topY + 0.13, -3.62);
+    tablet.rotation.x = -0.42;
+    tablet.rotation.y = MONITOR.azimuth;
+    parts.push(tablet);
     const hp = { x: 0.22, z: -3.72 };
     parts.push(
         cylinderAt(wood, 0.09, 0.015, [hp.x, topY, hp.z], { name: 'Headphones/base', segments: 12 }),
@@ -123,6 +136,33 @@ export const buildZhuyingDesk = (materials: MachiMaterials, variation: ZhuyingVa
         width: DESK.x1 - DESK.x0 - 0.3,
         height: DESK.tickerHeight,
     };
+
+    // 转椅：桌前居中偏右，椅背对镜头（网背、头枕、扶手、气压杆、五星脚）。背顶压低，别挡住桌沿跑马灯。
+    const chair = new THREE.Group();
+    chair.name = 'Chair';
+    chair.position.set(CHAIR.x, LEVEL.floor, CHAIR.z);
+    chair.rotation.y = CHAIR.yaw;
+    const chairDark = materials.toon('plasticDark');
+    const seat = boxAt(chairDark, [0.5, 0.07, 0.46], [0, 0.44, 0], { name: 'Chair/seat', radius: 0.03 });
+    const back = boxAt(chairDark, [0.46, 0.5, 0.05], [0, 0.52, 0.22], { name: 'Chair/back', radius: 0.02 });
+    back.rotation.x = 0.12;
+    const headrest = boxAt(chairDark, [0.24, 0.09, 0.05], [0, 0.98, 0.27], { name: 'Chair/headrest', radius: 0.02 });
+    headrest.rotation.x = 0.12;
+    chair.add(seat, back, headrest);
+    [-1, 1].forEach(side => {
+        chair.add(
+            boxAt(chairDark, [0.07, 0.025, 0.3], [side * 0.27, 0.62, 0.04], { name: 'Chair/armrest', radius: 0.008 }),
+            cylinderAt(chairDark, 0.015, 0.14, [side * 0.27, 0.48, 0.04], { name: 'Chair/armPost', segments: 6 }),
+        );
+    });
+    chair.add(cylinderAt(materials.toon('metal'), 0.026, 0.26, [0, 0.18, 0], { name: 'Chair/lift', segments: 8 }));
+    for (let index = 0; index < 5; index += 1) {
+        const angle = (index / 5) * Math.PI * 2 + 0.4;
+        const spoke = boxAt(materials.toon('metal'), [0.045, 0.02, 0.3], [Math.cos(angle) * 0.15, 0.035, Math.sin(angle) * 0.15], { name: 'Chair/spoke', radius: 0.006 });
+        spoke.rotation.y = Math.PI / 2 - angle;
+        chair.add(spoke, cylinderAt(chairDark, 0.028, 0.03, [Math.cos(angle) * 0.28, 0.012, Math.sin(angle) * 0.28], { name: 'Chair/caster', segments: 8 }));
+    }
+    parts.push(chair);
 
     return { group: group('Desk', ...parts), lampApex, lampTarget, monitorFace, tickerFace, keypad };
 };

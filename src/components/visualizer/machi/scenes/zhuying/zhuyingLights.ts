@@ -46,10 +46,10 @@ export interface ZhuyingLightLevels {
 
 export class ZhuyingLights {
     readonly group = new THREE.Group();
-    private readonly interior: THREE.PointLight[];
+    private readonly interior: { light: THREE.PointLight; base: number }[];
     private readonly screenLight: THREE.PointLight;
     private readonly pools: THREE.Mesh[] = [];
-    private readonly poolMaterials: { material: THREE.MeshBasicMaterial; key: 'interiorLight' | 'screenGlow'; level: number }[] = [];
+    private readonly poolMaterials: { material: THREE.MeshBasicMaterial; key: 'interiorLight' | 'screenGlow' | 'pagodaGlow'; level: number }[] = [];
     private levels: ZhuyingLightLevels = { interior: 1, screen: 1, pools: 1 };
     private readonly stripTexture = createPoolTexture(false);
     private readonly roundTexture = createPoolTexture(true);
@@ -63,16 +63,18 @@ export class ZhuyingLights {
             light.name = name;
             return light;
         };
-        // 台灯的暖光与灯笼的暖光（各一档强度，夜里才全开）。
+        // 台灯、灯笼、书架层板下三处暖光（各一档强度，夜里才全开）。
         this.interior = [
-            point(6.5, 5.5, lampApex.clone().add(new THREE.Vector3(0, -0.06, 0)), 'Lights/lamp'),
-            point(4.5, 5, lanternAt, 'Lights/lantern'),
+            { light: point(7.2, 5.5, lampApex.clone().add(new THREE.Vector3(0, -0.06, 0)), 'Lights/lamp'), base: 7.2 },
+            { light: point(5.0, 5, lanternAt, 'Lights/lantern'), base: 5.0 },
+            { light: point(2.4, 3, new THREE.Vector3(SHELF.x0 + 0.5, 1.1, (SHELF.z0 + SHELF.z1) / 2), 'Lights/shelf'), base: 2.4 },
         ];
         // 显示器的冷光：屏前一点，往桌面与人位吐。
-        this.screenLight = point(2.4, 3.2, new THREE.Vector3(-0.55, 1.05, -3.45), 'Lights/screen');
+        this.screenLight = point(2.6, 3.2, new THREE.Vector3(-0.55, 1.05, -3.45), 'Lights/screen');
 
-        // 地上的光斑：台灯下一圈、灯笼旁一圈、书架下沿一条、显示器前的桌下一片冷光。
-        const pool = (key: 'interiorLight' | 'screenGlow', level: number, size: [number, number], at: [number, number], round: boolean) => {
+        // 地上的光斑与亮拖尾：台灯下一圈、灯笼旁一圈、书架下沿一条、显示器前的桌下一片冷光；
+        // 几条斜向朝镜头拖开的亮痕是抛光地板映出的灯影（窗前那片是塔灯透进来的暖光）。
+        const pool = (key: 'interiorLight' | 'screenGlow' | 'pagodaGlow', level: number, size: [number, number], at: [number, number], round: boolean, yaw = 0) => {
             const material = materials.track(new THREE.MeshBasicMaterial({
                 color: 0xffffff,
                 map: round ? this.roundTexture : this.stripTexture,
@@ -84,18 +86,25 @@ export class ZhuyingLights {
             geometry.rotateX(-Math.PI / 2);
             const result = new THREE.Mesh(geometry, material);
             result.position.set(at[0], LEVEL.floor + 0.006, at[1]);
+            result.rotation.y = yaw;
             result.renderOrder = 1;
             result.name = `Pool/${key}`;
             this.pools.push(result);
             this.poolMaterials.push({ material, key, level });
             return result;
         };
+        const streakYaw = Math.PI / 4;
         pool('interiorLight', 0.5, [1.5, 1.2], [-1.3, -3.25], true);
         pool('interiorLight', 0.45, [1.4, 1.3], [TEA.lantern.x, TEA.lantern.z], true);
         pool('interiorLight', 0.4, [0.5, SHELF.z1 - SHELF.z0 - 0.2], [(SHELF.x0 + SHELF.x1) / 2 + 0.25, (SHELF.z0 + SHELF.z1) / 2], false);
         pool('screenGlow', 0.4, [1.8, 1.0], [(DESK.x0 + DESK.x1) / 2, DESK.z1 + 0.35], false);
+        pool('pagodaGlow', 0.22, [4.0, 0.85], [-2.5, -3.9], false);
+        pool('interiorLight', 0.3, [0.5, 1.7], [-1.05, -2.95], false, streakYaw);
+        pool('interiorLight', 0.26, [0.4, 1.4], [-4.3, -0.15], false, streakYaw);
+        pool('interiorLight', 0.24, [0.35, 2.3], [-4.55, -2.3], false, streakYaw);
+        pool('screenGlow', 0.3, [0.7, 1.9], [-0.35, -2.7], false, streakYaw);
 
-        this.group.add(...this.interior, this.screenLight, ...this.pools);
+        this.group.add(...this.interior.map(entry => entry.light), this.screenLight, ...this.pools);
         this.sync();
     }
 
@@ -108,14 +117,14 @@ export class ZhuyingLights {
     /** 颜色（插值后的）与亮度写回灯和光斑。 */
     sync() {
         const { interior, screen, pools } = this.levels;
-        this.interior.forEach((light, index) => {
+        this.interior.forEach(({ light, base }) => {
             light.color.copy(this.blend.get('interiorLight'));
-            light.intensity = (index === 0 ? 6.5 : 4.5) * interior;
+            light.intensity = base * interior;
         });
         this.screenLight.color.copy(this.blend.get('screenGlow'));
-        this.screenLight.intensity = 2.4 * screen;
+        this.screenLight.intensity = 2.6 * screen;
         this.poolMaterials.forEach(({ material, key, level }) => {
-            const scale = (key === 'screenGlow' ? screen : interior) * pools;
+            const scale = (key === 'screenGlow' ? screen : key === 'pagodaGlow' ? 1 : interior) * pools;
             material.color.copy(this.blend.get(key)).multiplyScalar(level * scale);
         });
     }
