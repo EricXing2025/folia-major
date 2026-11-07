@@ -23,8 +23,6 @@ describe('normalizeMachiTuning', () => {
             station: { azimuth: 75, elevation: -12, zoom: 2.8, panX: 2.5, panZ: 0 },
             kowloon: DEFAULT_MACHI_VIEW,
             recordstore: DEFAULT_MACHI_VIEW,
-            changan: DEFAULT_MACHI_VIEW,
-            zhuying: DEFAULT_MACHI_VIEW,
         });
         expect(normalizeMachiTuning({ camera: 'orbit', views: null })).toMatchObject({ camera: 'default', views: DEFAULT_MACHI_VIEWS });
     });
@@ -32,10 +30,10 @@ describe('normalizeMachiTuning', () => {
     it('gives the old shared view to every scene', () => {
         const view = { azimuth: -20, elevation: 6, zoom: 1.6, panX: 1.5, panZ: -0.5 };
         const tuning = normalizeMachiTuning({ camera: 'custom', view });
-        expect(tuning.views).toEqual({ konbini: view, station: view, kowloon: view, recordstore: view, changan: view, zhuying: view });
+        expect(tuning.views).toEqual({ konbini: view, station: view, kowloon: view, recordstore: view });
         expect(tuning).not.toHaveProperty('view');
         // 已经有各场景的视角时不再看旧的那份。
-        expect(normalizeMachiTuning({ view, views: { konbini: view } }).views).toEqual({ konbini: view, station: DEFAULT_MACHI_VIEW, kowloon: DEFAULT_MACHI_VIEW, recordstore: DEFAULT_MACHI_VIEW, changan: DEFAULT_MACHI_VIEW, zhuying: DEFAULT_MACHI_VIEW });
+        expect(normalizeMachiTuning({ view, views: { konbini: view } }).views).toEqual({ konbini: view, station: DEFAULT_MACHI_VIEW, kowloon: DEFAULT_MACHI_VIEW, recordstore: DEFAULT_MACHI_VIEW });
     });
 
     it('keeps the camera drift switch and its speed inside the range', () => {

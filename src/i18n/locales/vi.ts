@@ -3100,8 +3100,6 @@ export default {
     "machiSceneStation": "Trạm xăng",
     "machiSceneKowloon": "Quán bar Cửu Long Trại Thành",
     "machiSceneRecordstore": "Tiệm đĩa nửa đêm",
-    "machiSceneChangan": "Chợ đêm Trường An",
-    "machiSceneZhuying": "Trường An ánh nến",
     "machiSkySection": "Thời gian và thời tiết",
     "machiTimeOfDay": "Thời gian",
     "machiTimeOfDayHint": "Tự động theo đồng hồ của bạn: ban ngày, hoàng hôn hoặc ban đêm.",

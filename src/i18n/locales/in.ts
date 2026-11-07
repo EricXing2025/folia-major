@@ -3101,8 +3101,6 @@ export default {
     "machiSceneStation": "Pom bensin",
     "machiSceneKowloon": "Bar Kota Bertembok",
     "machiSceneRecordstore": "Toko rekaman tengah malam",
-    "machiSceneChangan": "Pasar malam Chang'an",
-    "machiSceneZhuying": "Chang'an cahaya lilin",
     "machiSkySection": "Waktu dan cuaca",
     "machiTimeOfDay": "Waktu",
     "machiTimeOfDayHint": "Otomatis mengikuti jam lokal: siang, senja, atau malam.",

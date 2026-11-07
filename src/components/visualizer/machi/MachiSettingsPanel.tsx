@@ -87,8 +87,6 @@ export const MACHI_SCENE_LABEL_KEYS: Record<MachiTuning['scene'], string> = {
     station: 'options.machiSceneStation',
     kowloon: 'options.machiSceneKowloon',
     recordstore: 'options.machiSceneRecordstore',
-    changan: 'options.machiSceneChangan',
-    zhuying: 'options.machiSceneZhuying',
 };
 
 export const MACHI_TIME_LABEL_KEYS: Record<MachiTimeOfDay, string> = {
@@ -154,26 +152,6 @@ const SCENE_GLYPHS: Record<MachiTuning['scene'], React.ReactNode> = {
             <circle cx="10" cy="15" r="2.6" />
             <circle cx="10" cy="15" r="0.7" opacity="0.6" />
             <path d="M17.5 8v8M17.5 8h3v5h-3" opacity="0.7" />
-            <path d="M3 20h18" />
-        </>
-    ),
-    // 长安夜市：一座收分的多层宝塔（三层檐），底下一排小铺面
-    changan: (
-        <>
-            <path d="M12 4v2" opacity="0.7" />
-            <path d="M9 7h6M8 10h8M7 13h10" />
-            <path d="M9.8 7v3M14.2 7v3M9 10v3M15 10v3M8.6 13v4h6.8v-4" opacity="0.7" />
-            <path d="M4 20v-2.5h3V20M17 20v-2.5h3V20" opacity="0.7" />
-            <path d="M3 20h18" />
-        </>
-    ),
-    // 烛影长安：一扇棂格窗，窗外一座收分的宝塔
-    zhuying: (
-        <>
-            <path d="M3 20V6h11v14" />
-            <path d="M8.5 6v14M3 13h11" opacity="0.6" />
-            <path d="M16.5 20V10" />
-            <path d="M16 12h1M15.4 14.5h2.2M14.8 17h3.4" opacity="0.7" />
             <path d="M3 20h18" />
         </>
     ),

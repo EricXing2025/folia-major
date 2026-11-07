@@ -3101,8 +3101,6 @@ export default {
     "machiSceneStation": "Gas station",
     "machiSceneKowloon": "Walled City bar",
     "machiSceneRecordstore": "Midnight Record Store",
-    "machiSceneChangan": "Chang'an Night Market",
-    "machiSceneZhuying": "Candlelight Chang'an",
     "machiSkySection": "Time and weather",
     "machiTimeOfDay": "Time of day",
     "machiTimeOfDayHint": "Auto follows your local clock: day, dusk or night.",
