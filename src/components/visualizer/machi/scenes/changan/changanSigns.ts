@@ -10,16 +10,16 @@ import type { MachiPalette } from '../../engine/palette';
 import { createCanvas, createMachiMeasure, type MachiFont } from '../../engine/signRaster';
 import { BOARD, STALLS } from './layout';
 import { paintChanganBanner, paintChanganPlaque, paintChanganStallSign, paintChanganTeaNeon } from './changanSignPaint';
-import type { ChanganTerraceParts } from './terrace';
+import type { ChanganMarketParts } from './market';
 
 // src/components/visualizer/machi/scenes/changan/changanSigns.ts
-// 长安夜市的招牌：台基前墙的宽幅歌词屏（engine/lyricScreen.ts，当前行逐字点亮）、屏下一排 EQ 光柱
-// （高低跟节拍 / 音频 / 副歌，InstancedMesh 每帧改 scale）、牌坊横匾（曲名）、两根柱上的竖幡灯箱
-// （竖排歌手名）、三个食摊的布幌子（肉夹馍 / 羊肉泡馍 / 油泼面·酸梅汤）、茶馆角的紫色小霓虹「茶」。
+// 长安夜市的招牌：市楼楼面的宽幅歌词屏（engine/lyricScreen.ts，当前行逐字点亮，楼面正对默认镜头）、
+// 屏下一排 EQ 光柱（高低跟节拍 / 音频 / 副歌，InstancedMesh 每帧改 scale）、牌坊横匾（曲名）、
+// 两根柱上的竖幡灯箱（竖排歌手名）、六个食摊的布幌子、市楼角的紫色小霓虹「茶」。
 // 颜色、图标、字体都从主题来；牌面贴图在换行 / 换歌 / 换主题时重画，每帧只改 uniform 与材质亮度。
 
 /** 食摊幌子上的字（STALLS 的 menu 下标）。 */
-export const STALL_MENUS = ['肉夹馍', '羊肉泡馍', '油泼面 · 酸梅汤'] as const;
+export const STALL_MENUS = ['肉夹馍', '羊肉泡馍', '油泼面 · 酸梅汤', '烤肉串', '胡辣汤', '甑糕'] as const;
 
 export interface ChanganSignPlacements {
     boardFace: { position: THREE.Vector3; rotationY: number; width: number; height: number };
@@ -27,7 +27,7 @@ export interface ChanganSignPlacements {
     bannerFaces: { position: THREE.Vector3; rotationY: number; width: number; height: number }[];
     stallSignFaces: { position: THREE.Vector3; rotationY: number; width: number; height: number }[];
     teaNeonFace: { position: THREE.Vector3; rotationY: number; width: number; height: number };
-    eq: ChanganTerraceParts['eq'];
+    eq: ChanganMarketParts['eq'];
 }
 
 export interface ChanganSignContent {
@@ -81,7 +81,7 @@ export class ChanganSigns {
 
     constructor(materials: MachiMaterials, blend: MachiColorBlend, placements: ChanganSignPlacements) {
         this.group.name = 'Signs';
-        // 台基前墙的宽幅歌词屏。
+        // 市楼楼面的宽幅歌词屏（楼面与默认镜头同方位角，入射角 0°）。
         this.screen = new MachiLyricScreen(materials, blend, BOARD.width - 0.14, BOARD.height - 0.12);
         this.group.add(this.screen.createFace(placements.boardFace.position, placements.boardFace.rotationY, 'Board/face'));
 
@@ -208,7 +208,7 @@ export class ChanganSigns {
                 this.eqLevels[index] = this.eqLevels[index]! + (target - this.eqLevels[index]!) * (frame.staticMode ? 1 : 0.35);
                 const height = eq.maxHeight * this.eqLevels[index]!;
                 this.eqMatrix.makeScale(1, Math.max(0.02, height), 1);
-                this.eqMatrix.setPosition(eq.x0 + eq.spacing * index, eq.y0 + Math.max(0.02, height) / 2, eq.z);
+                this.eqMatrix.setPosition(eq.x0 + eq.sx * index, eq.y0 + Math.max(0.02, height) / 2, eq.z0 + eq.sz * index);
                 eq.mesh.setMatrixAt(index, this.eqMatrix);
             }
             eq.mesh.instanceMatrix.needsUpdate = true;

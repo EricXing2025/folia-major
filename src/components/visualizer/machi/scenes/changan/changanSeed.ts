@@ -14,8 +14,8 @@ export interface ChanganVariation {
     smokeDensity: number;
     /** 花树花球的密度倍数（花球多少）。 */
     blossomDensity: number;
-    /** 两盏天灯升落循环的相位（0..1）。 */
-    skyPhase: [number, number];
+    /** 三盏天灯升落循环的相位（0..1）。 */
+    skyPhase: [number, number, number];
     /** 灯串下垂量的倍数。 */
     stringSag: number;
     /** 雨的风向偏角（弧度，绕 y）与倾斜量（每米下落的水平位移）。 */
@@ -35,11 +35,12 @@ export const resolveChanganVariation = (seed: string | number): ChanganVariation
         lanternScheme: Math.floor(random() * 3),
         smokeDensity: pick(0.6, 1.4),
         blossomDensity: pick(0.6, 1.3),
-        skyPhase: [random(), random()],
+        skyPhase: [random(), random(), random()],
         stringSag: pick(0.8, 1.3),
         windYaw: pick(-0.6, 0.6),
         windSlant: pick(0.06, 0.2),
         puddleOffset: [pick(-40, 40), pick(-40, 40)],
-        puddleAmount: pick(0.45, 0.8),
+        // 湿石板广场是这场戏的标志：水洼铺得多一点。
+        puddleAmount: pick(0.55, 0.88),
     };
 };

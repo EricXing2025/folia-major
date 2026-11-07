@@ -1,16 +1,18 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { MachiMaterials } from '../../engine/materials';
-import { LEVEL, PAIFANG, PALACE_LAMP, PALACE_LAMPS, PROPS, STALL, STALLS, STRING_SPANS } from './layout';
+import { BOARD, EQ, LEVEL, LYRIC_HOUSE, PAIFANG, PALACE_LAMP, PALACE_LAMPS, PROPS, STALL, STALLS, STRING_SPANS } from './layout';
 import { boxAt, boxSpan, cylinderAt, group, mesh, roundedBox, sagWire, tubeBetween } from '../../engine/geometry/shapes';
 import type { ChanganVariation } from './changanSeed';
 
 // src/components/visualizer/machi/scenes/changan/market.ts
-// 夜市广场 Group "Market"：前左的唐式牌坊（两根立柱、横梁、斗拱小屋顶、横匾与柱上竖幡、一对石狮），
-// 右边一列食摊与广场中景一个（柜台、顶棚、幌子、蒸笼白气、挂灯）、小桌椅，两盏宫灯柱兼作灯串锚点，
-// 横跨广场的红灯笼串与灯珠串（悬链线），一角一株粉花树；背景是后左带城楼的城墙、后右几座低檐唐屋
-// 与茶馆角上的紫色小霓虹，天上两盏慢慢升起的天灯。
-// 灯笼、花球、栏板柱、凳、瓦当这类重复件都是 InstancedMesh；会动的天灯单独留在小 Group 里。
+// 夜市广场 Group "Market"——市集才是这场戏的主角：前左一座正对镜头的唐式牌坊（两根立柱、横梁、
+// 斗拱小屋顶、横匾与柱上竖幡、一对石狮），右列三个食摊、左列两个（牌坊后面）加中景一个伞棚，
+// 柜台、斜棚/伞棚两种顶、幌子、蒸笼白气、挂灯、旁边码着货箱；广场小桌椅、三盏宫灯柱兼作灯串锚点，
+// 灯串从牌坊顶拉过广场、摊间再补灯珠串；后右一座二层市楼，楼面挂宽幅歌词屏、屏下一排 EQ 光柱、
+// 上层一排亮窗、右角紫色小霓虹；背景是后左带两座城楼的城墙、塔后一排亮窗屋脊带，两株粉花树一边
+// 一角，天上三盏慢慢升起的天灯。
+// 灯笼、花球、雉堞、凳、亮窗这类重复件都是 InstancedMesh；会动的天灯单独留在小 Group 里。
 
 /** 每只灯笼用到的调色板键（配色方案按 seed 换，实例色在 syncColors 里写）。 */
 export const LANTERN_KEYS = ['lanternRed', 'lanternAmber', 'blossom'] as const;
@@ -24,23 +26,41 @@ export interface ChanganColorBatch {
     shade: Float32Array;
 }
 
+/** EQ 光柱条带：几何与原位参数（update 里按节拍改每根的 scale.y，沿墙面局部 x 排开）。 */
+export interface ChanganEqSpec {
+    mesh: THREE.InstancedMesh;
+    count: number;
+    /** 第一根柱的世界 x / z；第 i 根在 (x0 + sx·i, z0 + sz·i)。 */
+    x0: number;
+    z0: number;
+    sx: number;
+    sz: number;
+    y0: number;
+    maxHeight: number;
+    phases: Float32Array;
+}
+
 export interface ChanganMarketParts {
     group: THREE.Group;
     /** 牌坊横匾（曲名）的安装面。 */
     plaqueFace: { position: THREE.Vector3; rotationY: number; width: number; height: number };
     /** 牌坊两柱上挂的竖幡灯箱（歌手）的安装面。 */
     bannerFaces: { position: THREE.Vector3; rotationY: number; width: number; height: number }[];
-    /** 三个食摊的幌子面。 */
+    /** 各食摊的幌子面。 */
     stallSignFaces: { position: THREE.Vector3; rotationY: number; width: number; height: number }[];
-    /** 茶馆角的紫色小霓虹面。 */
+    /** 市楼角的紫色小霓虹面。 */
     teaNeonFace: { position: THREE.Vector3; rotationY: number; width: number; height: number };
+    /** 市楼楼面歌词屏的安装面（正对默认镜头）。 */
+    boardFace: { position: THREE.Vector3; rotationY: number; width: number; height: number };
+    /** 歌词屏下的 EQ 光柱条带。 */
+    eq: ChanganEqSpec;
     /** 灯笼串 + 摊挂灯 + 牌坊挂灯的灯笼批（实例色按 seed 方案）。 */
     lanternBatch: ChanganColorBatch;
-    /** 花树花球批（实例色在花键之间）。 */
+    /** 花树花球批（两株树共用一批，实例色在花键之间）。 */
     blossomBatch: ChanganColorBatch;
-    /** 两盏宫灯灯头的世界坐标（光柱、点光、光斑用）。 */
+    /** 三盏宫灯灯头的世界坐标（光柱、点光、光斑用）。 */
     lampHeads: THREE.Vector3[];
-    /** 两盏天灯（direct 里慢慢升起）。 */
+    /** 三盏天灯（direct 里慢慢升起）。 */
     skyLanterns: THREE.Object3D[];
     /** 食摊蒸笼的白气源。 */
     steamSources: { position: THREE.Vector3; puffs: number; period: number; size: number }[];
@@ -102,17 +122,17 @@ const buildPaifang = (materials: MachiMaterials) => {
     [-1, 1].forEach(side => {
         const lx = side * PAIFANG.pillarOffset;
         const base = at(lx, groundY, 0);
-        parts.push(boxAt(stone, [0.46, 0.3, 0.46], [base.x, base.y, base.z], { rotationY: yaw, name: 'Paifang/base' }));
+        parts.push(boxAt(stone, [0.5, 0.3, 0.5], [base.x, base.y, base.z], { rotationY: yaw, name: 'Paifang/base' }));
         const p = at(lx, groundY + 0.24, 0);
         parts.push(boxAt(red, [PAIFANG.pillarSize, PAIFANG.pillarHeight, PAIFANG.pillarSize], [p.x, p.y, p.z], { rotationY: yaw, radius: 0.025, name: 'Paifang/pillar' }));
     });
     // 上下两道横梁（小额枋 + 大额枋）与端头的花板。
     const mid = at(0, groundY + PAIFANG.midLintel.y0, 0);
-    parts.push(boxAt(red, [2.62, PAIFANG.midLintel.y1 - PAIFANG.midLintel.y0, 0.26], [mid.x, mid.y, mid.z], { rotationY: yaw, radius: 0.02, name: 'Paifang/lintelMid' }));
+    parts.push(boxAt(red, [2.95, PAIFANG.midLintel.y1 - PAIFANG.midLintel.y0, 0.26], [mid.x, mid.y, mid.z], { rotationY: yaw, radius: 0.02, name: 'Paifang/lintelMid' }));
     const topL = at(0, groundY + PAIFANG.topLintel.y0, 0);
-    parts.push(boxAt(red, [2.36, PAIFANG.topLintel.y1 - PAIFANG.topLintel.y0, 0.22], [topL.x, topL.y, topL.z], { rotationY: yaw, radius: 0.02, name: 'Paifang/lintelTop' }));
+    parts.push(boxAt(red, [2.6, PAIFANG.topLintel.y1 - PAIFANG.topLintel.y0, 0.22], [topL.x, topL.y, topL.z], { rotationY: yaw, radius: 0.02, name: 'Paifang/lintelTop' }));
     [-1, 1].forEach(side => {
-        const end = at(side * 1.32, groundY + PAIFANG.midLintel.y0 + 0.01, 0);
+        const end = at(side * 1.48, groundY + PAIFANG.midLintel.y0 + 0.01, 0);
         parts.push(boxAt(trim, [0.14, 0.42, 0.3], [end.x, end.y, end.z], { rotationY: yaw, radius: 0.02, name: 'Paifang/lintelEnd' }));
     });
     // 横匾（曲名写上去）：深色匾心 + 描金框，贴着大额枋的面鼓出来（梁面局部 z≈0.13，匾要比它靠前才看得见）。
@@ -174,11 +194,17 @@ const buildPaifang = (materials: MachiMaterials) => {
             height: PAIFANG.plaque.height,
         },
         bannerFaces,
-        lanternAnchors: [[-0.52, groundY + 1.92, 0.16] as const, [0.52, groundY + 1.92, 0.16] as const].map(([lx, ly, lz]) => at(lx, ly, lz)),
+        // 挂灯：横匾下沿一对 + 两座夹楼檐口下各一只。
+        lanternAnchors: [
+            [-0.52, groundY + 2.3, 0.16],
+            [0.52, groundY + 2.3, 0.16],
+            [-PAIFANG.pillarOffset, groundY + PAIFANG.sideRoof.y0 - 0.12, 0.3],
+            [PAIFANG.pillarOffset, groundY + PAIFANG.sideRoof.y0 - 0.12, 0.3],
+        ].map(([lx, ly, lz]) => at(lx!, ly!, lz!)),
     };
 };
 
-/** 食摊一个：柜台 + 前板、四柱、斜顶棚与檐口、幌子面、蒸笼与货色、挂灯两只。 */
+/** 食摊一个：柜台 + 前板、四柱、斜棚或伞棚、幌子面、蒸笼与货色、挂灯两只、旁边码货箱。 */
 const buildStall = (materials: MachiMaterials, spec: (typeof STALLS)[number], index: number) => {
     const counter = materials.toon('stallCounter');
     const wood = materials.toon('wood');
@@ -189,27 +215,50 @@ const buildStall = (materials: MachiMaterials, spec: (typeof STALLS)[number], in
     const { x: cx, z: cz, yaw } = spec;
     const at = (lx: number, ly: number, lz: number) => toWorld(cx, cz, yaw, lx, ly, lz);
     const groundY = LEVEL.lot;
-    const { width, depth, counterTop, postHeight, canopyY, canopySize } = STALL;
+    const { width, depth, counterTop, postHeight, canopyY, canopySize, umbrella } = STALL;
 
     const c = at(0, groundY, 0);
     parts.push(boxAt(counter, [width, counterTop, depth], [c.x, c.y, c.z], { rotationY: yaw, radius: 0.03, name: `Stall${index}/counter` }));
     const front = at(0, groundY + counterTop - 0.16, depth / 2 + 0.02);
     parts.push(boxAt(wood, [width - 0.1, 0.12, 0.05], [front.x, front.y, front.z], { rotationY: yaw, radius: 0.02, name: `Stall${index}/front` }));
-    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => {
-        const p = at(sx! * (width / 2 - 0.07), groundY, sz! * (depth / 2 - 0.07));
-        parts.push(cylinderAt(wood, 0.045, postHeight, [p.x, p.y, p.z], { name: `Stall${index}/post`, segments: 8 }));
-    });
-    // 斜顶棚：前低后高的布篷，前沿一条檐口布。
-    const canopy = mesh(roundedBox(canopySize.w, 0.05, canopySize.d, 0.03), roof, { name: `Stall${index}/canopy` });
-    const canopyAt = at(0, groundY + canopyY, 0.04);
-    canopy.position.set(canopyAt.x, canopyAt.y, canopyAt.z);
-    canopy.rotation.order = 'YXZ';
-    canopy.rotation.y = yaw;
-    canopy.rotation.x = -0.12;
-    parts.push(canopy);
-    const valance = at(0, groundY + canopyY - 0.02, depth / 2 + 0.16);
-    parts.push(boxAt(cloth, [canopySize.w * 0.96, 0.13, 0.035], [valance.x, valance.y, valance.z], { rotationY: yaw, radius: 0.02, name: `Stall${index}/valance` }));
-    // 幌子（招牌面）：顶棚下挂在前面。
+    const lanternAnchors: THREE.Vector3[] = [];
+    if (spec.style === 'umbrella') {
+        // 伞棚摊：一根中柱挑起一顶八角伞，伞沿挂一圈小布旗。
+        const pole = at(0, groundY, 0);
+        parts.push(cylinderAt(wood, 0.05, canopyY + umbrella.height * 0.6, [pole.x, pole.y, pole.z], { name: `Stall${index}/pole`, segments: 8 }));
+        const canopyAt = at(0, groundY + canopyY + umbrella.height * 0.6, 0);
+        const canopy = mesh(new THREE.ConeGeometry(umbrella.radius, umbrella.height, 8), cloth, { name: `Stall${index}/umbrella` });
+        canopy.position.set(canopyAt.x, canopyAt.y, canopyAt.z);
+        canopy.rotation.y = yaw;
+        parts.push(canopy);
+        // 伞沿下的小幌子杆（招牌面横挂在伞下前方）。
+        const bar = at(0, groundY + STALL.sign.y0 + STALL.sign.height + 0.1, umbrella.radius * 0.55);
+        parts.push(boxAt(wood, [STALL.sign.width + 0.1, 0.04, 0.05], [bar.x, bar.y, bar.z], { rotationY: yaw, radius: 0.01, name: `Stall${index}/signBar` }));
+        lanternAnchors.push(
+            at(-umbrella.radius * 0.55, groundY + canopyY - 0.1, umbrella.radius * 0.45),
+            at(umbrella.radius * 0.55, groundY + canopyY - 0.1, umbrella.radius * 0.45),
+        );
+    } else {
+        [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => {
+            const p = at(sx! * (width / 2 - 0.07), groundY, sz! * (depth / 2 - 0.07));
+            parts.push(cylinderAt(wood, 0.045, postHeight, [p.x, p.y, p.z], { name: `Stall${index}/post`, segments: 8 }));
+        });
+        // 斜顶棚：前低后高的布篷，前沿一条檐口布。
+        const canopy = mesh(roundedBox(canopySize.w, 0.05, canopySize.d, 0.03), roof, { name: `Stall${index}/canopy` });
+        const canopyAt = at(0, groundY + canopyY, 0.04);
+        canopy.position.set(canopyAt.x, canopyAt.y, canopyAt.z);
+        canopy.rotation.order = 'YXZ';
+        canopy.rotation.y = yaw;
+        canopy.rotation.x = -0.12;
+        parts.push(canopy);
+        const valance = at(0, groundY + canopyY - 0.02, depth / 2 + 0.16);
+        parts.push(boxAt(cloth, [canopySize.w * 0.96, 0.13, 0.035], [valance.x, valance.y, valance.z], { rotationY: yaw, radius: 0.02, name: `Stall${index}/valance` }));
+        lanternAnchors.push(
+            at(-width / 2 + 0.14, groundY + canopyY - 0.26, depth / 2 + 0.12),
+            at(width / 2 - 0.14, groundY + canopyY - 0.26, depth / 2 + 0.12),
+        );
+    }
+    // 幌子（招牌面）：棚下挂在前面。
     const signBack = at(0, groundY + STALL.sign.y0 - 0.02, depth / 2 + 0.03);
     parts.push(boxAt(wood, [STALL.sign.width + 0.06, STALL.sign.height + 0.05, 0.04], [signBack.x, signBack.y, signBack.z], { rotationY: yaw, radius: 0.015, name: `Stall${index}/signBack` }));
     const signFace = at(0, groundY + STALL.sign.y0 + STALL.sign.height / 2, depth / 2 + 0.056);
@@ -222,15 +271,41 @@ const buildStall = (materials: MachiMaterials, spec: (typeof STALLS)[number], in
     parts.push(boxAt(goods, [0.2, 0.12, 0.16], [goods1.x, goods1.y, goods1.z], { rotationY: yaw + 0.3, radius: 0.02, name: `Stall${index}/goods` }));
     const goods2 = at(0.1, groundY + counterTop, -0.12);
     parts.push(boxAt(wood, [0.16, 0.09, 0.12], [goods2.x, goods2.y, goods2.z], { rotationY: yaw - 0.2, radius: 0.02, name: `Stall${index}/goods2` }));
-    // 顶棚下两角各挂一只灯笼（进灯笼批）。
-    const lanternAnchors = [[-width / 2 + 0.14, groundY + canopyY - 0.26, depth / 2 + 0.12] as const, [width / 2 - 0.14, groundY + canopyY - 0.26, depth / 2 + 0.12] as const]
-        .map(([lx, ly, lz]) => at(lx, ly, lz));
+    // 摊旁码两件货箱、一坛罐子。
+    const crate = at(-width / 2 - 0.28, groundY, depth / 2 - 0.05);
+    parts.push(boxAt(wood, [0.3, 0.24, 0.3], [crate.x, crate.y, crate.z], { rotationY: yaw + 0.15, radius: 0.025, name: `Stall${index}/crate0` }));
+    parts.push(boxAt(wood, [0.26, 0.2, 0.26], [crate.x, crate.y + 0.24, crate.z], { rotationY: yaw - 0.2, radius: 0.025, name: `Stall${index}/crate1` }));
+    const jar = at(width / 2 + 0.26, groundY, -depth / 2 + 0.1);
+    parts.push(cylinderAt(goods, 0.11, 0.3, [jar.x, jar.y, jar.z], { radiusTop: 0.07, name: `Stall${index}/jar`, segments: 10 }));
     return {
         parts,
         signFace: { position: signFace, rotationY: yaw, width: STALL.sign.width, height: STALL.sign.height },
         lanternAnchors,
         steamerTop,
     };
+};
+
+/** 广场边的小陶俑：砖台座上一尊小立俑（腿、身、肩、双臂、头与冠），站在矮台旁看塔。 */
+const buildWarrior = (materials: MachiMaterials) => {
+    const clay = materials.toon('terracotta');
+    const dark = materials.toon('warriorDark');
+    const plinth = materials.toon('stoneDark');
+    const figure = new THREE.Group();
+    figure.name = 'Warrior';
+    const h = 1.05;
+    figure.add(boxAt(clay, [0.3, 0.42, 0.22], [0, 0, 0], { radius: 0.04, name: 'legs' }));
+    figure.add(boxAt(clay, [0.34, 0.34, 0.24], [0, 0.4, 0], { radius: 0.05, name: 'torso' }));
+    figure.add(boxAt(clay, [0.42, 0.12, 0.26], [0, 0.68, 0], { radius: 0.04, name: 'shoulders' }));
+    figure.add(boxAt(clay, [0.09, 0.34, 0.12], [-0.2, 0.42, 0.04], { radius: 0.03, name: 'armL' }));
+    figure.add(boxAt(clay, [0.09, 0.34, 0.12], [0.2, 0.42, 0.04], { radius: 0.03, name: 'armR' }));
+    figure.add(boxAt(clay, [0.17, 0.2, 0.17], [0, 0.8, 0.02], { radius: 0.05, name: 'head' }));
+    figure.add(boxAt(dark, [0.2, 0.07, 0.2], [0, 0.97, 0.02], { radius: 0.02, name: 'hat' }));
+    figure.add(boxAt(dark, [0.36, 0.05, 0.26], [0, 0.35, 0.13], { radius: 0.015, name: 'belt' }));
+    figure.scale.setScalar(h / 1.02);
+    figure.position.set(PROPS.warrior.x, LEVEL.lot + 0.34, PROPS.warrior.z);
+    figure.rotation.y = PROPS.warrior.yaw;
+    const base = boxAt(plinth, [0.5, 0.34, 0.5], [PROPS.warrior.x, LEVEL.lot, PROPS.warrior.z], { radius: 0.03, name: 'Warrior/base' });
+    return group('Market/warrior', base, figure);
 };
 
 /** 宫灯柱：石础、立柱、六角宫灯头（顶一小檐、下一坠子）。 */
@@ -250,13 +325,118 @@ const buildPalaceLamp = (materials: MachiMaterials, spot: { x: number; z: number
     return { parts, head: new THREE.Vector3(spot.x, headY, spot.z) };
 };
 
-/** 城墙一段 + 城楼剪影（后左，贴着底座左缘，朝场内的面受一点光）。 */
+/**
+ * 歌词楼：后右的二层市楼，楼面（+局部 z）正对默认镜头。楼下挂宽幅歌词屏（深色灯箱），
+ * 屏下一排 EQ 光柱，上层檐口一条受光边、檐下一排亮窗，右角一面紫色小霓虹。
+ */
+const buildLyricHouse = (materials: MachiMaterials) => {
+    const wall = materials.toon('houseWall');
+    const roof = materials.toon('skylineRoof');
+    const dark = materials.toon('boardPanel');
+    const glow = materials.glow('teaEave');
+    const eqGlow = materials.glow('eqBar');
+    const windowGlow = materials.glow('houseWindow');
+    const parts: THREE.Object3D[] = [];
+    const { cx, cz, yaw, width, depth, wallHeight, roofHeight } = LYRIC_HOUSE;
+    const y = LEVEL.lot;
+    const at = (lx: number, ly: number, lz: number) => toWorld(cx, cz, yaw, lx, ly, lz);
+    const front = depth / 2;
+
+    // 楼身与两层收檐的屋顶。
+    parts.push(boxAt(wall, [width, wallHeight, depth], [cx, y, cz], { rotationY: yaw, radius: 0.03, name: 'House/body' }));
+    parts.push(boxAt(roof, [width + 0.34, 0.13, depth + 0.34], [cx, y + wallHeight, cz], { rotationY: yaw, radius: 0.03, name: 'House/roof' }));
+    parts.push(boxAt(roof, [width * 0.8, roofHeight, depth * 0.74], [cx, y + wallHeight + 0.13, cz], { rotationY: yaw, radius: 0.03, name: 'House/roofUp' }));
+    parts.push(boxAt(roof, [width * 0.72, 0.1, depth * 0.2], [cx, y + wallHeight + 0.13 + roofHeight - 0.02, cz], { rotationY: yaw, radius: 0.03, name: 'House/ridge' }));
+    // 楼面檐口一条受光边 + 檐下一排亮窗（楼的上层，歌词屏上面）。
+    const eave = at(0, y + wallHeight - 0.02, front + 0.18);
+    parts.push(boxAt(glow, [width + 0.36, 0.03, 0.04], [eave.x, eave.y, eave.z], { rotationY: yaw, radius: 0.01, name: 'House/eaveGlow' }));
+    const windowXs = [-0.78, -0.44, -0.1, 0.24];
+    const windowMesh = new THREE.InstancedMesh(roundedBox(0.2, 0.2, 0.03, 0.01), windowGlow, windowXs.length);
+    windowMesh.name = 'House/windows';
+    const windowMatrix = new THREE.Matrix4();
+    windowXs.forEach((lx, index) => {
+        const p = at(lx, y + 2.32, front + 0.02);
+        windowMatrix.makeTranslation(p.x, p.y, p.z);
+        const rot = new THREE.Matrix4().makeRotationY(yaw);
+        windowMatrix.multiply(rot);
+        windowMesh.setMatrixAt(index, windowMatrix);
+    });
+    parts.push(windowMesh);
+    // 歌词屏的木框与背板，贴着楼面鼓出来；屏面是安装面（正对镜头）。
+    const back = at(BOARD.lx, y + BOARD.cy - (BOARD.height + 0.1) / 2, front + 0.03);
+    parts.push(boxAt(dark, [BOARD.width + 0.1, BOARD.height + 0.1, 0.06], [back.x, back.y, back.z], { rotationY: yaw, radius: 0.015, name: 'Board/case' }));
+    const faceAt = at(BOARD.lx, y + BOARD.cy, front + 0.065);
+    const boardFace = {
+        position: faceAt,
+        rotationY: yaw,
+        width: BOARD.width - 0.14,
+        height: BOARD.height - 0.12,
+    };
+    // 屏下一排 EQ 光柱：沿楼面局部 x 排开，高低随节拍。
+    const spacing = EQ.width / EQ.count;
+    const firstLocalX = EQ.lx - EQ.width / 2 + spacing / 2;
+    const first = at(firstLocalX, 0, front + 0.045);
+    const step = localXZ(0, 0, yaw, spacing, 0);
+    const barGeometry = roundedBox(spacing * 0.45, 1, 0.05, 0.015);
+    const eqMesh = new THREE.InstancedMesh(barGeometry, eqGlow, EQ.count);
+    eqMesh.name = 'Board/eq';
+    const phases = new Float32Array(EQ.count);
+    const matrix = new THREE.Matrix4();
+    for (let index = 0; index < EQ.count; index += 1) {
+        phases[index] = index / EQ.count;
+        matrix.makeTranslation(first.x + step.x * index, y + EQ.y0 + EQ.maxHeight * 0.3, first.z + step.z * index);
+        matrix.scale(new THREE.Vector3(1, EQ.maxHeight * 0.6, 1));
+        eqMesh.setMatrixAt(index, matrix);
+    }
+    eqMesh.userData.dynamic = true;
+    parts.push(eqMesh);
+    // 楼右角的紫色小霓虹「茶」（朝镜头斜出的面）。
+    const neonAt = at(width / 2 - 0.28, 0, front + 0.04);
+    const neonFace = {
+        position: new THREE.Vector3(neonAt.x, y + 2.3, neonAt.z),
+        rotationY: yaw,
+        width: 0.42,
+        height: 0.42,
+    };
+    return {
+        parts,
+        boardFace,
+        neonFace,
+        eq: {
+            mesh: eqMesh,
+            count: EQ.count,
+            x0: first.x,
+            z0: first.z,
+            sx: step.x,
+            sz: step.z,
+            y0: y + EQ.y0,
+            maxHeight: EQ.maxHeight,
+            phases,
+        } satisfies ChanganEqSpec,
+    };
+};
+
+/** 一座城楼：高出墙身的敌楼（收分大屋顶 + 朝场内的门洞暗示）。 */
+const buildGateTower = (materials: MachiMaterials, wall: THREE.Material, roof: THREE.Material, dark: THREE.Material, gate: { z: number; width: number; height: number; roofTop: number }, name: string) => {
+    const { x0, x1, top } = PROPS.cityWall;
+    const y = LEVEL.lot;
+    const gx = (x0 + x1) / 2 + 0.06;
+    return group(`Market/${name}`,
+        boxAt(wall, [x1 - x0 + 0.14, gate.height - top, gate.width], [gx, y + top, gate.z], { radius: 0.02, name: `${name}/body` }),
+        boxAt(roof, [x1 - x0 + 0.4, 0.12, gate.width + 0.34], [gx, y + gate.height, gate.z], { radius: 0.02, name: `${name}/roof` }),
+        boxAt(roof, [x1 - x0 + 0.2, gate.roofTop - gate.height - 0.2, gate.width * 0.72], [gx, y + gate.height + 0.12, gate.z], { radius: 0.02, name: `${name}/roofUp` }),
+        boxAt(roof, [x1 - x0 + 0.1, 0.1, gate.width * 0.6], [gx, y + gate.roofTop - 0.08, gate.z], { radius: 0.02, name: `${name}/ridge` }),
+        boxAt(dark, [0.04, 0.9, 0.55], [x1 + 0.12, y, gate.z], { radius: 0.02, name: `${name}/arch` }),
+    );
+};
+
+/** 城墙一段 + 前后两座城楼剪影（后左，贴着底座左缘，朝场内的面受一点光）。 */
 const buildCityWall = (materials: MachiMaterials) => {
     const wall = materials.toon('wallSil');
     const roof = materials.toon('skylineRoof');
     const dark = materials.toon('stoneDark');
     const parts: THREE.Object3D[] = [];
-    const { x0, x1, z0, z1, top, gate } = PROPS.cityWall;
+    const { x0, x1, z0, z1, top, gate, gate2 } = PROPS.cityWall;
     const y = LEVEL.lot;
     parts.push(boxSpan(wall, x0, x1, y - 0.04, y + top, z0, z1, { radius: 0.02, name: 'CityWall/body' }));
     // 顶上的雉堞：一排小垛口（InstancedMesh）。
@@ -271,43 +451,42 @@ const buildCityWall = (materials: MachiMaterials) => {
         crenMesh.setMatrixAt(index, matrix);
     });
     parts.push(crenMesh);
-    // 城楼：高出墙身的敌楼（收分大屋顶 + 朝场内的门洞暗示）。
-    const gx = (x0 + x1) / 2 + 0.06;
-    parts.push(boxAt(wall, [x1 - x0 + 0.14, gate.height - top, gate.width], [gx, y + top, gate.z], { radius: 0.02, name: 'Gate/body' }));
-    parts.push(boxAt(roof, [x1 - x0 + 0.4, 0.12, gate.width + 0.34], [gx, y + gate.height, gate.z], { radius: 0.02, name: 'Gate/roof' }));
-    parts.push(boxAt(roof, [x1 - x0 + 0.2, gate.roofTop - gate.height - 0.2, gate.width * 0.72], [gx, y + gate.height + 0.12, gate.z], { radius: 0.02, name: 'Gate/roofUp' }));
-    parts.push(boxAt(roof, [x1 - x0 + 0.1, 0.1, gate.width * 0.6], [gx, y + gate.roofTop - 0.08, gate.z], { radius: 0.02, name: 'Gate/ridge' }));
-    parts.push(boxAt(dark, [0.04, 0.9, 0.55], [x1 + 0.12, y, gate.z], { radius: 0.02, name: 'Gate/arch' }));
+    parts.push(buildGateTower(materials, wall, roof, dark, gate, 'gate'));
+    parts.push(buildGateTower(materials, wall, roof, dark, gate2, 'gate2'));
     return group('Market/cityWall', ...parts);
 };
 
-/** 后右的唐屋天际线：两三座低檐剪影 + 一家茶馆（高一点，角上有紫色小霓虹面）。 */
-const buildSkyline = (materials: MachiMaterials) => {
+/** 后沿的唐屋屋脊带：一排高低错落的剪影屋顶，面朝场内的面上点几扇亮窗。 */
+const buildRooftops = (materials: MachiMaterials) => {
     const wall = materials.toon('skylineWall');
     const roof = materials.toon('skylineRoof');
-    const tea = materials.toon('teaWall');
-    const glow = materials.glow('teaEave');
+    const windowGlow = materials.glow('roofWindow');
     const parts: THREE.Object3D[] = [];
     const y = LEVEL.lot;
-    PROPS.skyline.forEach((item, index) => {
-        parts.push(boxAt(wall, [item.w, item.h, item.d], [item.x, y, item.z], { radius: 0.02, name: `Skyline${index}/body` }));
-        parts.push(boxAt(roof, [item.w + 0.3, 0.14, item.d + 0.3], [item.x, y + item.h, item.z], { radius: 0.03, name: `Skyline${index}/roof` }));
-        parts.push(boxAt(roof, [item.w * 0.8, 0.26, item.d * 0.8], [item.x, y + item.h + 0.14, item.z], { radius: 0.03, name: `Skyline${index}/roofUp` }));
+    const windowSpots: THREE.Vector3[] = [];
+    PROPS.rooftops.forEach((item, index) => {
+        parts.push(boxAt(wall, [item.w, item.h, item.d], [item.x, y, item.z], { radius: 0.02, name: `Rooftop${index}/body` }));
+        parts.push(boxAt(roof, [item.w + 0.3, 0.14, item.d + 0.3], [item.x, y + item.h, item.z], { radius: 0.03, name: `Rooftop${index}/roof` }));
+        parts.push(boxAt(roof, [item.w * 0.8, 0.22, item.d * 0.8], [item.x, y + item.h + 0.14, item.z], { radius: 0.03, name: `Rooftop${index}/roofUp` }));
+        // 朝场内（+x 与 +z 两面）各点一两扇窗。
+        const rows = item.h > 1 ? [0.45, 0.72] : [0.5];
+        rows.forEach(fy => {
+            windowSpots.push(new THREE.Vector3(item.x - item.w * 0.22, y + item.h * fy, item.z + item.d / 2 + 0.015));
+            windowSpots.push(new THREE.Vector3(item.x + item.w / 2 + 0.015, y + item.h * fy, item.z + item.d * 0.15));
+        });
     });
-    const t = PROPS.teaHouse;
-    parts.push(boxAt(tea, [t.w, t.h, t.d], [t.x, y, t.z], { radius: 0.02, name: 'Tea/body' }));
-    parts.push(boxAt(roof, [t.w + 0.34, 0.15, t.d + 0.34], [t.x, y + t.h, t.z], { radius: 0.03, name: 'Tea/roof' }));
-    parts.push(boxAt(roof, [t.w * 0.78, 0.24, t.d * 0.78], [t.x, y + t.h + 0.15, t.z], { radius: 0.03, name: 'Tea/roofUp' }));
-    // 茶馆檐口一小条受光的边 + 角上霓虹的安装面（朝镜头斜出）。
-    parts.push(boxAt(glow, [t.w + 0.36, 0.03, 0.04], [t.x, y + t.h - 0.02, t.z + t.d / 2 + 0.17], { radius: 0.01, name: 'Tea/eaveGlow' }));
-    const neonAt = toWorld(t.x, t.z, t.neonYaw, 0, 0, t.d / 2 + 0.02);
-    const neonFace = {
-        position: new THREE.Vector3(neonAt.x, y + t.h * 0.62, neonAt.z),
-        rotationY: t.neonYaw,
-        width: 0.5,
-        height: 0.5,
-    };
-    return { parts, neonFace };
+    const windowMesh = new THREE.InstancedMesh(roundedBox(0.12, 0.14, 0.03, 0.01), windowGlow, windowSpots.length);
+    windowMesh.name = 'Rooftops/windows';
+    const matrix = new THREE.Matrix4();
+    const side = new THREE.Matrix4().makeRotationY(Math.PI / 2);
+    windowSpots.forEach((position, index) => {
+        matrix.makeTranslation(position.x, position.y, position.z);
+        // +x 面的窗沿 y 转 90°。
+        if (index % 2 === 1) matrix.multiply(side);
+        windowMesh.setMatrixAt(index, matrix);
+    });
+    parts.push(windowMesh);
+    return group('Market/rooftops', ...parts);
 };
 
 /** 小桌椅：三张圆桌配小凳（凳是一批 InstancedMesh）。 */
@@ -334,42 +513,49 @@ const buildTables = (materials: MachiMaterials) => {
     return group('Market/tables', ...parts);
 };
 
-/** 一株粉花树：干与两杈 + 一蓬花球（InstancedMesh，密度按歌变）。 */
-const buildBlossom = (materials: MachiMaterials, density: number, rng: () => number) => {
+/** 两株粉花树：干与两杈 + 一蓬花球（两棵树的花球合进一批 InstancedMesh，密度按歌变）。 */
+const buildBlossoms = (materials: MachiMaterials, density: number, rng: () => number) => {
     const trunk = materials.toon('treeTrunk');
     const parts: THREE.Object3D[] = [];
-    const { x, z } = PROPS.blossomTree;
     const y = LEVEL.lot;
-    parts.push(cylinderAt(trunk, 0.085, 1.45, [x, y, z], { name: 'Blossom/trunk', radiusTop: 0.05, segments: 8 }));
-    parts.push(tubeBetween(trunk, new THREE.Vector3(x, y + 0.9, z), new THREE.Vector3(x - 0.42, y + 1.6, z - 0.1), 0.045, { name: 'Blossom/branch' }));
-    parts.push(tubeBetween(trunk, new THREE.Vector3(x, y + 1.05, z), new THREE.Vector3(x + 0.34, y + 1.75, z + 0.14), 0.04, { name: 'Blossom/branch2' }));
-    const count = Math.round(15 * density);
+    const blobSpots: { center: THREE.Vector3; count: number }[] = [];
+    PROPS.blossomTrees.forEach((spot, index) => {
+        const { x, z } = spot;
+        parts.push(cylinderAt(trunk, 0.085, 1.45, [x, y, z], { name: `Blossom${index}/trunk`, radiusTop: 0.05, segments: 8 }));
+        parts.push(tubeBetween(trunk, new THREE.Vector3(x, y + 0.9, z), new THREE.Vector3(x - 0.42, y + 1.6, z - 0.1), 0.045, { name: `Blossom${index}/branch` }));
+        parts.push(tubeBetween(trunk, new THREE.Vector3(x, y + 1.05, z), new THREE.Vector3(x + 0.34, y + 1.75, z + 0.14), 0.04, { name: `Blossom${index}/branch2` }));
+        blobSpots.push({ center: new THREE.Vector3(x - 0.05, y + 2.05, z), count: Math.round(15 * density) });
+    });
+    const total = blobSpots.reduce((sum, spot) => sum + spot.count, 0);
     const blobGeometry = new THREE.IcosahedronGeometry(0.34, 1);
-    const blobs = new THREE.InstancedMesh(blobGeometry, materials.product, count);
+    const blobs = new THREE.InstancedMesh(blobGeometry, materials.product, total);
     blobs.name = 'Blossom/blobs';
     const keys: string[] = [];
-    const shade = new Float32Array(count);
+    const shade = new Float32Array(total);
     const matrix = new THREE.Matrix4();
-    const center = new THREE.Vector3(x - 0.05, y + 2.05, z);
-    for (let index = 0; index < count; index += 1) {
-        // 椭球状的花冠里随机落一朵：越靠边上越小。
-        const theta = rng() * Math.PI * 2;
-        const r = 0.25 + rng() * 0.75;
-        const px = center.x + Math.cos(theta) * r * 0.85;
-        const pz = center.z + Math.sin(theta) * r * 0.6;
-        const py = center.y + (rng() - 0.42) * 0.85;
-        const s = (0.55 + rng() * 0.5) * (1.15 - r * 0.35);
-        matrix.makeScale(s, s * 0.82, s);
-        matrix.setPosition(px, py, pz);
-        blobs.setMatrixAt(index, matrix);
-        keys[index] = index % 4 === 3 ? 'blossomDeep' : 'blossom';
-        shade[index] = 0.85 + rng() * 0.3;
-    }
+    let index = 0;
+    blobSpots.forEach(({ center, count }) => {
+        for (let i = 0; i < count; i += 1) {
+            // 椭球状的花冠里随机落一朵：越靠边上越小。
+            const theta = rng() * Math.PI * 2;
+            const r = 0.25 + rng() * 0.75;
+            const px = center.x + Math.cos(theta) * r * 0.85;
+            const pz = center.z + Math.sin(theta) * r * 0.6;
+            const py = center.y + (rng() - 0.42) * 0.85;
+            const s = (0.55 + rng() * 0.5) * (1.15 - r * 0.35);
+            matrix.makeScale(s, s * 0.82, s);
+            matrix.setPosition(px, py, pz);
+            blobs.setMatrixAt(index, matrix);
+            keys[index] = index % 4 === 3 ? 'blossomDeep' : 'blossom';
+            shade[index] = 0.85 + rng() * 0.3;
+            index += 1;
+        }
+    });
     parts.push(blobs);
     return { parts, batch: { mesh: blobs, keys, shade } };
 };
 
-/** 两盏天灯：纸罩（下口一点暖光），direct 里慢慢升起、绕回。 */
+/** 三盏天灯：纸罩（下口一点暖光），direct 里慢慢升起、绕回。 */
 const buildSkyLanterns = (materials: MachiMaterials) => {
     const glow = materials.glow('skyLantern');
     return PROPS.skyLanterns.map((spot, index) => {
@@ -398,7 +584,7 @@ export const buildChanganMarket = (materials: MachiMaterials, variation: Changan
         parts.push(group(`Market/stall${index}`, ...stall.parts));
         stallSignFaces.push(stall.signFace);
         lanternPositions.push(...stall.lanternAnchors);
-        steamSources.push({ position: stall.steamerTop, puffs: Math.max(3, Math.round(6 * variation.smokeDensity)), period: 3.6, size: 0.55 });
+        if (spec.steam) steamSources.push({ position: stall.steamerTop, puffs: Math.max(3, Math.round(6 * variation.smokeDensity)), period: 3.6, size: 0.55 });
     });
 
     const lampHeads: THREE.Vector3[] = [];
@@ -407,6 +593,10 @@ export const buildChanganMarket = (materials: MachiMaterials, variation: Changan
         parts.push(group(`Market/lamp${index}`, ...lamp.parts));
         lampHeads.push(lamp.head);
     });
+
+    // 歌词楼（歌词屏、EQ、亮窗、霓虹都在它立面上）。
+    const house = buildLyricHouse(materials);
+    parts.push(group('Market/lyricHouse', ...house.parts));
 
     // 灯串：每条悬链线一根细线 + 沿线排开的灯笼 / 灯珠。
     const wire = materials.toon('wire');
@@ -456,14 +646,14 @@ export const buildChanganMarket = (materials: MachiMaterials, variation: Changan
     });
     parts.push(festoonMesh);
 
-    // 花树、桌椅、城墙与天际线、天灯。
+    // 花树、桌椅、城墙与屋脊带、天灯。
     const blossomRng = (() => { let s = 97 + Math.round(variation.blossomDensity * 100); return () => { s = (s * 16807) % 2147483647; return (s & 0xffff) / 0x10000; }; })();
-    const blossom = buildBlossom(materials, variation.blossomDensity, blossomRng);
+    const blossom = buildBlossoms(materials, variation.blossomDensity, blossomRng);
     parts.push(group('Market/blossom', ...blossom.parts));
     parts.push(buildTables(materials));
+    parts.push(buildWarrior(materials));
     parts.push(buildCityWall(materials));
-    const skyline = buildSkyline(materials);
-    parts.push(group('Market/skyline', ...skyline.parts));
+    parts.push(buildRooftops(materials));
     const skyLanterns = buildSkyLanterns(materials);
 
     return {
@@ -471,7 +661,9 @@ export const buildChanganMarket = (materials: MachiMaterials, variation: Changan
         plaqueFace: paifang.plaqueFace,
         bannerFaces: paifang.bannerFaces,
         stallSignFaces,
-        teaNeonFace: skyline.neonFace,
+        teaNeonFace: house.neonFace,
+        boardFace: house.boardFace,
+        eq: house.eq,
         lanternBatch: { mesh: lanternMesh, keys: lanternKeys, shade: new Float32Array(lanternKeys.length).fill(1) },
         blossomBatch: blossom.batch,
         lampHeads,
